@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 
@@ -54,7 +54,7 @@ class CardDocument(Base):
     card_name: Mapped[str] = mapped_column(String(200), nullable=False)
     source: Mapped[str] = mapped_column(String(1000), nullable=False)
     document_version: Mapped[str] = mapped_column(String(120), nullable=False)
-    last_verified: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_verified: Mapped[object | None] = mapped_column(Date())
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384))
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
