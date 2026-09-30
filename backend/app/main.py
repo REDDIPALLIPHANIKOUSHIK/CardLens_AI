@@ -197,22 +197,22 @@ class ProfileExtractionRequest(BaseModel):
 
 def _deterministic_profile_extract(text: str) -> dict:
     values: dict = {}
-    amount = r"(?:₹|rs\\.?\\s*)?([0-9][0-9,]*(?:\\.[0-9]+)?)"
+    amount = r"(?:₹|rs\.?\s*)?([0-9][0-9,]*(?:\.[0-9]+)?)"
     income = re.search(r"(?:earn(?:ing)?|income|salary)[^0-9]{0,35}" + amount, text, re.I)
     if income:
         values["monthly_income"] = float(income.group(1).replace(",", ""))
-    credit = re.search(r"(?:credit\\s+score|cibil(?:\\s+score)?|score)[^0-9]{0,15}([0-9]{3})", text, re.I)
+    credit = re.search(r"(?:credit\s+score|cibil(?:\s+score)?|score)[^0-9]{0,15}([0-9]{3})", text, re.I)
     if credit:
         values["credit_score"] = int(credit.group(1))
     fee = re.search(r"(?:annual|yearly) fee[^0-9]{0,25}" + amount, text, re.I)
     if fee:
         values["annual_fee_max"] = float(fee.group(1).replace(",", ""))
-    preference = re.search(r"prefer(?:ence)?(?:\\s+(?:cashback|cash back|travel|fuel|rewards?))|(?:cashback|cash back|travel|fuel)\\s+prefer", text, re.I)
+    preference = re.search(r"prefer(?:ence)?(?:\s+(?:cashback|cash back|travel|fuel|rewards?))|(?:cashback|cash back|travel|fuel)\s+prefer", text, re.I)
     if preference:
         found = preference.group(0).lower()
         values["reward_preference"] = "cashback" if "cash" in found else ("travel" if "travel" in found else ("fuel" if "fuel" in found else "rewards"))
     categories = {
-        "shopping":r"(?:online\\s+shopping|shopping|online)",
+        "shopping":r"(?:online\s+shopping|shopping|online)",
         "dining":r"(?:dining|restaurants?)",
         "fuel":r"fuel",
         "travel":r"travel",
