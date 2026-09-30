@@ -1,12 +1,53 @@
 from __future__ import annotations
 
 from typing import Literal
-from fastapi import FastAPI, HTTPException
+from collections import defaultdict, deque
+from threading import Lock
+import json, logging, os, re, time, uuid
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from .database import check_database, database_url
 from pydantic import BaseModel, Field, model_validator
 
+logger = logging.getLogger('cardlens.api')
 app = FastAPI(title="CardLens AI", version="0.1.0", description="Deterministic demo credit-card suitability recommendations")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+origins = [value.strip() for value in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",") if value.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Request-ID"])
+
+_RATE_WINDOW = 60
+_RATE_LIMIT = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "60"))
+_requests: dict[str, deque[float]] = defaultdict(deque)
+_rate_lock = Lock()
+
+@app.middleware("http")
+async def request_controls(request: Request, call_next):
+    started = time.perf_counter()
+    supplied = request.headers.get("x-request-id", "")
+    request_id = supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", supplied) else str(uuid.uuid4())
+    request.state.request_id = request_id
+    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat"}
+    if limited:
+        client = request.client.host if request.client else "unknown"
+        key = f"{client}:{request.url.path}"
+        now = time.monotonic()
+        with _rate_lock:
+            bucket = _requests[key]
+            while bucket and bucket[0] <= now - _RATE_WINDOW:
+                bucket.popleft()
+            if len(bucket) >= _RATE_LIMIT:
+                response = JSONResponse(status_code=429, content={"success": False, "error_code": "RATE_LIMITED", "message": "Too many requests. Please try again shortly."}, headers={"Retry-After": "60"})
+                response.headers["X-Request-ID"] = request_id
+                return response
+            bucket.append(now)
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(json.dumps({"request_id": request_id, "endpoint": request.url.path, "status": 500, "event": "unhandled_error"}))
+        response = JSONResponse(status_code=500, content={"success": False, "error_code": "INTERNAL_ERROR", "message": "CardLens AI could not complete that request."})
+    response.headers["X-Request-ID"] = request_id
+    logger.info(json.dumps({"request_id": request_id, "endpoint": request.url.path, "latency_ms": round((time.perf_counter()-started)*1000, 2), "status": response.status_code}))
+    return response
 
 # Synthetic demo offers only. These rates are not real issuer terms.
 CARDS = [
@@ -128,7 +169,8 @@ def _rank(profile: Profile):
 
 @app.get("/api/health")
 def health():
-    return {"status":"ok","service":"CardLens AI","mode":"DEMO","catalog":"synthetic demo data"}
+    ready, database = check_database()
+    return {"status":"ok","service":"CardLens AI","mode":"DEMO" if not database_url() else "POSTGRESQL","database":database,"catalog":"synthetic demo data"}
 
 @app.get("/api/cards")
 def cards():
@@ -194,4 +236,7 @@ def chat(payload: dict):
 
 @app.get("/api/ready")
 def ready():
-    return {"status":"ready"}
+    available, database = check_database()
+    if not available:
+        raise HTTPException(status_code=503, detail={"success":False,"error_code":"DATABASE_UNAVAILABLE","message":"Persistent storage is temporarily unavailable."})
+    return {"status":"ready","mode":"DEMO" if not database_url() else "POSTGRESQL","database":database}
