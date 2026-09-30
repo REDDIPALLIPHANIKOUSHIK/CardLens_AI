@@ -218,7 +218,7 @@ def _account_db():
     return factory
 
 class SettingsInput(BaseModel):
-    voice_language: Literal["en","hi","te"] = "en"
+    voice_language: Literal["en","hi","te","ta"] = "en"
 
 @app.get("/api/settings")
 def get_settings(user: User = Depends(current_user)):
@@ -286,7 +286,7 @@ def save_profile(profile: Profile, user: User = Depends(current_user)):
     return {"profile":value,"complete":True,"saved":True}
 
 class ConversationPayload(BaseModel):
-    language: Literal["en","hi","te"] = "en"
+    language: Literal["en","hi","te","ta"] = "en"
     messages: list[dict] = Field(max_length=30)
 
 def _safe_messages(items: list[dict]) -> list[dict]:
@@ -373,7 +373,7 @@ def account_history(user: User = Depends(current_user)):
 
 class ProfileExtractionRequest(BaseModel):
     text: str = Field(min_length=5, max_length=4000)
-    language: Literal["en","hi","te"] = "en"
+    language: Literal["en","hi","te","ta"] = "en"
 
 def _deterministic_profile_extract(text: str) -> dict:
     values: dict = {}
@@ -536,8 +536,8 @@ def compare(payload: dict, user: User | None = Depends(optional_current_user)):
 
 @app.post("/api/voice/transcribe")
 async def voice_transcribe(audio: UploadFile = File(...), language: str = Form("en")):
-    if language not in {"en", "hi", "te"}:
-        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+    if language not in {"en", "hi", "te", "ta"}:
+        raise HTTPException(status_code=422, detail="Language must be en, hi, te, or ta.")
     if audio.content_type not in {"audio/webm", "audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg"}:
         raise HTTPException(status_code=415, detail="Unsupported audio format.")
     raw = await audio.read(10 * 1024 * 1024 + 1)
@@ -557,8 +557,8 @@ async def voice_transcribe(audio: UploadFile = File(...), language: str = Form("
 async def voice_speak(payload: dict):
     language = str(payload.get("language", "en"))
     text_value = str(payload.get("text", "")).strip()
-    if language not in {"en", "hi", "te"}:
-        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+    if language not in {"en", "hi", "te", "ta"}:
+        raise HTTPException(status_code=422, detail="Language must be en, hi, te, or ta.")
     if not text_value or len(text_value) > 4000:
         raise HTTPException(status_code=422, detail="Text is required and must be under 4,000 characters.")
     provider = configured_voice_provider()
@@ -617,7 +617,7 @@ async def _llm_tool_answer(question: str, profile: Profile, language: str, histo
     provider = configured_provider()
     if provider is None:
         return None
-    language_name = {"en":"English","hi":"Hindi","te":"Telugu"}[language]
+    language_name = {"en":"English","hi":"Hindi","te":"Telugu","ta":"Tamil"}[language]
     system = (
         "You are the CardLens AI Advisor. You present and explain backend outputs; you are never the recommender. "
         "You MUST call the appropriate tool before making profile, ranking, comparison, simulation, reward, eligibility, or card-term claims. "
@@ -664,7 +664,7 @@ async def chat(payload: dict):
         raise HTTPException(status_code=422, detail="Message is required")
     language = str(payload.get("language", "en"))
     if language not in {"en","hi","te"}:
-        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+        raise HTTPException(status_code=422, detail="Language must be en, hi, te, or ta.")
     lower = question.lower()
     factual = any(term in lower for term in ("lounge", "forex", "foreign exchange", "annual fee", "joining fee", "cashback rule", "redemption", "exclusion"))
     try:
@@ -682,7 +682,7 @@ async def chat(payload: dict):
         provider = configured_provider()
         if provider:
             try:
-                system = "Answer the user's card-terms question only from the retrieved source excerpts below. If they do not answer it, say you do not have enough verified information. Do not infer or add terms. Respond in " + {"en":"English","hi":"Hindi","te":"Telugu"}[language] + "."
+                system = "Answer the user's card-terms question only from the retrieved source excerpts below. If they do not answer it, say you do not have enough verified information. Do not infer or add terms. Respond in " + {"en":"English","hi":"Hindi","te":"Telugu","ta":"Tamil"}[language] + "."
                 evidence = "\n".join(f"[{i+1}] {item['card_name']} | {item['source']} | verified {item['last_verified']}: {item['text']}" for i, item in enumerate(excerpts))
                 answer_message = await provider.chat([{"role":"system","content":system+"\n\n"+evidence},{"role":"user","content":question}])
                 answer = answer_message.get("content")
