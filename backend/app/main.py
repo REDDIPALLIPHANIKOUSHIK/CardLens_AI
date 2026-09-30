@@ -66,8 +66,8 @@ class Profile(BaseModel):
     monthly_income: float | None = Field(None, ge=0, le=100_000_000)
     credit_score: int | None = Field(None, ge=300, le=900)
     age: int | None = Field(None, ge=18, le=100)
-    annual_fee_max: float = Field(1500, ge=0, le=1_000_000)
-    reward_preference: Literal["cashback","travel","fuel","rewards"] = "cashback"
+    annual_fee_max: float | None = Field(1500, ge=0, le=1_000_000)
+    reward_preference: Literal["cashback","travel","fuel","rewards"] | None = "cashback"
     spending: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -96,8 +96,8 @@ def _rank(profile: Profile):
         match = (sum(profile.spending.get(k, 0) * c["rates"][k] for k in CATEGORIES) / total * 100 / max(c["rates"].values())) if total else 50
         match = min(100, max(0, match))
         reward_score = min(100, gross / max(1, total * 12 * 0.05) * 100) if total else 50
-        preference = 100 if c["reward_type"] == profile.reward_preference else 55
-        fee_fit = 100 if c["annual_fee"] <= profile.annual_fee_max else max(0, 100 - (c["annual_fee"]-profile.annual_fee_max)/20)
+        preference = 70 if profile.reward_preference is None else (100 if c["reward_type"] == profile.reward_preference else 55)
+        fee_fit = 50 if profile.annual_fee_max is None else (100 if c["annual_fee"] <= profile.annual_fee_max else max(0, 100 - (c["annual_fee"]-profile.annual_fee_max)/20))
         eligibility = 85 if profile.monthly_income is not None and profile.credit_score is not None else 60
         benefits = 60 if c["lounge_access"] else 40
         score = round(WEIGHTS["spending_match"]*match + WEIGHTS["reward_value"]*reward_score + WEIGHTS["preference_match"]*preference + WEIGHTS["eligibility"]*eligibility + WEIGHTS["fee_value"]*fee_fit + WEIGHTS["benefits"]*benefits)
@@ -121,7 +121,7 @@ def _rank(profile: Profile):
             f"{k.title()} earns an illustrative {c['rates'][k] * 100:g}% demo reward rate"
             for k in top_spend_categories
         ]
-        why.append("Annual fee is within your stated preference" if c["annual_fee"] <= profile.annual_fee_max else "Fee preference lowers this card's fit")
+        why.append("Fee preference was not provided; fee fit is scored neutrally" if profile.annual_fee_max is None else ("Annual fee is within your stated preference" if c["annual_fee"] <= profile.annual_fee_max else "Fee preference lowers this card's fit"))
         why.append(f"Estimated net annual value ₹{round(net):,} from your entered spending")
         eligibility_known = int(profile.monthly_income is not None) + int(profile.credit_score is not None)
         completeness = round(100 * (0.65 * min(1, len(profile.spending) / len(CATEGORIES)) + 0.35 * eligibility_known / 2))
