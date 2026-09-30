@@ -29,7 +29,7 @@ async def request_controls(request: Request, call_next):
     supplied = request.headers.get("x-request-id", "")
     request_id = supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", supplied) else str(uuid.uuid4())
     request.state.request_id = request_id
-    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat", "/api/rag/search", "/api/voice/transcribe", "/api/voice/speak"}
+    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat", "/api/rag/search", "/api/voice/transcribe", "/api/voice/speak", "/api/profile/extract"}
     if limited:
         client = request.client.host if request.client else "unknown"
         key = f"{client}:{request.url.path}"
