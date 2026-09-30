@@ -1,7 +1,7 @@
 import unittest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
-from backend.app.main import app
+from backend.app.main import app, Profile, _rank
 from backend.app.models import Base, CardDocument
 from backend.app.database import get_session_factory
 from datetime import date
@@ -21,6 +21,10 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertTrue(signup.cookies.get("cardlens_session"))
         self.assertEqual(self.client.get('/api/auth/me').json()['user']['email'], email)
         self.assertNotIn("password_hash", signup.json()["user"])
+        initial_profile = self.client.get('/api/profile')
+        self.assertEqual(initial_profile.status_code, 200)
+        self.assertFalse(initial_profile.json()['complete'])
+        self.assertIsNone(initial_profile.json()['profile'])
         saved = self.client.put('/api/profile', json=self.profile)
         self.assertEqual(saved.status_code, 200)
         self.assertTrue(saved.json()["saved"])
@@ -146,6 +150,14 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(a, sorted(a, key=lambda x: (-x['score'], -x['estimated_net_annual_value'], x['id'])))
 
+    def test_unspecified_preferences_remain_unknown(self):
+        profile = Profile(spending={"shopping":10000})
+        self.assertIsNone(profile.annual_fee_max)
+        self.assertIsNone(profile.reward_preference)
+        recommendation = _rank(profile)["recommendations"][0]
+        self.assertEqual(recommendation["score_breakdown"]["preference_match"], 70)
+        self.assertEqual(recommendation["score_breakdown"]["fee_value"], 50)
+
     def test_score_explanation_and_confidence_are_measurable(self):
         result = self.client.post('/api/recommend', json=self.profile).json()
         first = result['recommendations'][0]
@@ -258,3 +270,4 @@ class RecommendationApiTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
