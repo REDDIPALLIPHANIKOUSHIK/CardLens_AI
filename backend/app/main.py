@@ -3,18 +3,22 @@ from __future__ import annotations
 from typing import Literal
 from collections import defaultdict, deque
 from threading import Lock
+from datetime import datetime, timezone
 import json, logging, os, re, time, uuid
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
-from .database import check_database, database_url
+from .database import check_database, database_url, get_session_factory
+from .auth import current_user, optional_current_user, router as auth_router
+from .models import ComparisonHistory, ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile, UserSettings
 from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger('cardlens.api')
 app = FastAPI(title="CardLens AI", version="0.1.0", description="Deterministic demo credit-card suitability recommendations")
+app.include_router(auth_router)
 origins = [value.strip() for value in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",") if value.strip()]
 
 def validate_runtime_configuration() -> None:
@@ -35,7 +39,7 @@ def validate_runtime_configuration() -> None:
         raise RuntimeError("Production FRONTEND_ORIGINS must contain at least one HTTPS origin.")
 
 validate_runtime_configuration()
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Request-ID"])
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-Request-ID"])
 
 _RATE_WINDOW = 60
 _RATE_LIMIT = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "60"))
@@ -48,7 +52,7 @@ async def request_controls(request: Request, call_next):
     supplied = request.headers.get("x-request-id", "")
     request_id = supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", supplied) else str(uuid.uuid4())
     request.state.request_id = request_id
-    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat", "/api/rag/search", "/api/voice/transcribe", "/api/voice/speak", "/api/profile/extract"}
+    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat", "/api/rag/search", "/api/voice/transcribe", "/api/voice/speak", "/api/profile/extract", "/api/auth/signup", "/api/auth/login"}
     if limited:
         client = request.client.host if request.client else "unknown"
         key = f"{client}:{request.url.path}"
@@ -207,13 +211,244 @@ def card_details(card_id: str):
         raise HTTPException(status_code=404, detail={"success":False,"error_code":"CARD_NOT_FOUND","message":"Card not found in the demo catalog."})
     return {"data":card,"notice":"Synthetic demo data. Terms are not current issuer offers."}
 
+def _account_db():
+    factory = get_session_factory()
+    if factory is None:
+        raise HTTPException(status_code=503, detail={"code":"ACCOUNT_STORAGE_UNAVAILABLE","message":"Account storage is temporarily unavailable."})
+    return factory
+
+class SettingsInput(BaseModel):
+    voice_language: Literal["en","hi","te","ta"] = "en"
+
+@app.get("/api/settings")
+def get_settings(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        row = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+        return {"voice_language":row.voice_language if row else "en"}
+
+@app.put("/api/settings")
+def save_settings(payload: SettingsInput, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        row = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+        if row is None:
+            db.add(UserSettings(user_id=user.id, voice_language=payload.voice_language))
+        else:
+            row.voice_language = payload.voice_language
+    return {"voice_language":payload.voice_language,"saved":True}
+
+@app.get("/api/favorites")
+def list_favorites(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        favorites = db.query(UserFavorite).filter(UserFavorite.user_id == user.id).order_by(UserFavorite.created_at.desc()).all()
+        catalog = {card["id"]:card for card in CARDS}
+        return {"items":[{"card_id":item.card_id,"saved_at":item.created_at.isoformat() if item.created_at else None,"card":catalog.get(item.card_id)} for item in favorites]}
+
+@app.post("/api/favorites/{card_id}", status_code=201)
+def save_favorite(card_id: str, user: User = Depends(current_user)):
+    if not any(card["id"] == card_id for card in CARDS):
+        raise HTTPException(status_code=404, detail="Card not found.")
+    factory = _account_db()
+    with factory.begin() as db:
+        existing = db.query(UserFavorite).filter(UserFavorite.user_id == user.id, UserFavorite.card_id == card_id).first()
+        if existing is None:
+            db.add(UserFavorite(user_id=user.id, card_id=card_id))
+    return {"saved":True,"card_id":card_id}
+
+@app.delete("/api/favorites/{card_id}")
+def remove_favorite(card_id: str, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        db.query(UserFavorite).filter(UserFavorite.user_id == user.id, UserFavorite.card_id == card_id).delete()
+    return {"saved":False,"card_id":card_id}
+
+@app.get("/api/profile")
+def load_profile(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        row = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        return {"profile":row.profile if row else None,"complete":row is not None}
+
+@app.put("/api/profile")
 @app.post("/api/profile")
-def validate_profile(profile: Profile):
-    return {"profile":profile.model_dump(),"validated":True,"storage":"session_only"}
+def save_profile(profile: Profile, user: User = Depends(current_user)):
+    factory = _account_db()
+    value = profile.model_dump()
+    with factory.begin() as db:
+        row = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        if row is None:
+            row = UserProfile(user_id=user.id, profile=value)
+            db.add(row)
+        else:
+            row.profile = value
+    return {"profile":value,"complete":True,"saved":True}
+
+@app.delete("/api/profile")
+def reset_profile(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        db.query(UserProfile).filter(UserProfile.user_id == user.id).delete()
+        db.query(Recommendation).filter(Recommendation.user_id == user.id).delete()
+        db.query(SimulationHistory).filter(SimulationHistory.user_id == user.id).delete()
+        db.query(ComparisonHistory).filter(ComparisonHistory.user_id == user.id).delete()
+    return {"reset":True}
+
+class ConversationPayload(BaseModel):
+    language: Literal["en","hi","te","ta"] = "en"
+    messages: list[dict] = Field(max_length=30)
+
+def _safe_messages(items: list[dict]) -> list[dict]:
+    safe = []
+    for item in items[-30:]:
+        role, content = item.get("role"), item.get("text", item.get("content"))
+        if role not in {"user","assistant"} or not isinstance(content, str):
+            raise HTTPException(status_code=422, detail="Conversation messages must have a user or assistant role and text.")
+        content = content.strip()
+        if not content or len(content) > 6000:
+            raise HTTPException(status_code=422, detail="Conversation messages must be between 1 and 6000 characters.")
+        safe.append({"role":role,"text":content})
+    return safe
+
+def _conversation_dict(session, db):
+    messages = db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).order_by(ConversationMessage.created_at.asc()).all()
+    title = (session.context or {}).get("title")
+    if not title:
+        first = next((m.content for m in messages if m.role == "user"), "")
+        title = first[:52] + ("…" if len(first) > 52 else "") if first else "New conversation"
+    return {"id":session.id,"title":title,"language":session.language,"messages":[{"role":m.role,"text":m.content} for m in messages]}
+
+class ConversationRename(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+
+@app.get("/api/conversations")
+def list_conversations(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        sessions = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).limit(50).all()
+        items = []
+        for session in sessions:
+            conversation = _conversation_dict(session, db)
+            conversation["messages"] = conversation["messages"][-1:]
+            items.append(conversation)
+        return {"items":items}
+
+@app.get("/api/conversations/latest")
+def latest_conversation(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).first()
+        return {"conversation":_conversation_dict(session, db) if session else None}
+
+
+@app.get("/api/conversations/{conversation_id}")
+def get_conversation(conversation_id: str, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        return {"conversation":_conversation_dict(session, db)}
+
+@app.patch("/api/conversations/{conversation_id}")
+def rename_conversation(conversation_id: str, payload: ConversationRename, user: User = Depends(current_user)):
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Conversation title cannot be empty.")
+    factory = _account_db()
+    with factory.begin() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        session.context = {**(session.context or {}), "title":title}
+        session.updated_at = datetime.now(timezone.utc)
+        return {"conversation":_conversation_dict(session, db)}
+
+@app.delete("/api/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).delete()
+        db.delete(session)
+    return {"deleted":True}
+
+@app.delete("/api/conversations")
+def clear_conversations(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        sessions = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).all()
+        session_ids = [session.id for session in sessions]
+        if session_ids:
+            db.query(ConversationMessage).filter(ConversationMessage.session_id.in_(session_ids)).delete(synchronize_session=False)
+            db.query(ConversationSession).filter(ConversationSession.id.in_(session_ids)).delete(synchronize_session=False)
+    return {"deleted":len(session_ids)}
+
+@app.post("/api/conversations", status_code=201)
+def create_conversation(payload: ConversationPayload, user: User = Depends(current_user)):
+    factory = _account_db()
+    messages = _safe_messages(payload.messages)
+    with factory.begin() as db:
+        session = ConversationSession(user_id=user.id, language=payload.language)
+        db.add(session)
+        db.flush()
+        for item in messages:
+            db.add(ConversationMessage(session_id=session.id, role=item["role"], content=item["text"]))
+        db.flush()
+        return {"conversation":_conversation_dict(session, db)}
+
+@app.put("/api/conversations/{conversation_id}")
+def update_conversation(conversation_id: str, payload: ConversationPayload, user: User = Depends(current_user)):
+    factory = _account_db()
+    messages = _safe_messages(payload.messages)
+    with factory.begin() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        session.language = payload.language
+        session.updated_at = datetime.now(timezone.utc)
+        db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).delete()
+        for item in messages:
+            db.add(ConversationMessage(session_id=session.id, role=item["role"], content=item["text"]))
+        db.flush()
+        return {"conversation":_conversation_dict(session, db)}
+
+@app.get("/api/history")
+def account_history(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        recommendations = db.query(Recommendation).filter(Recommendation.user_id == user.id).order_by(Recommendation.created_at.desc()).limit(5).all()
+        simulations = db.query(SimulationHistory).filter(SimulationHistory.user_id == user.id).order_by(SimulationHistory.created_at.desc()).limit(5).all()
+        comparisons = db.query(ComparisonHistory).filter(ComparisonHistory.user_id == user.id).order_by(ComparisonHistory.created_at.desc()).limit(5).all()
+        conversations = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).limit(3).all()
+        activity = [
+            {"type":"recommendation","created_at":item.created_at.isoformat() if item.created_at else None,
+             "summary":(item.results[0].get("name","Recommendation run") + " ranked first") if item.results else "Recommendation run saved"}
+            for item in recommendations
+        ] + [
+            {"type":"simulation","created_at":item.created_at.isoformat() if item.created_at else None,
+             "summary":item.results.get("explanation","What-If scenario saved")}
+            for item in simulations
+        ]
+        activity.extend(
+            {"type":"comparison","created_at":item.created_at.isoformat() if item.created_at else None,
+             "summary":"Compared " + " and ".join(card.get("name","card") for card in item.results[:3])}
+            for item in comparisons
+        )
+        activity.extend(
+            {"type":"conversation","created_at":item.updated_at.isoformat() if item.updated_at else None,
+             "summary":"Advisor conversation in " + item.language.upper()}
+            for item in conversations
+        )
+        activity.sort(key=lambda item:item["created_at"] or "", reverse=True)
+        return {"items":activity[:8]}
 
 class ProfileExtractionRequest(BaseModel):
     text: str = Field(min_length=5, max_length=4000)
-    language: Literal["en","hi","te"] = "en"
+    language: Literal["en","hi","te","ta"] = "en"
 
 def _deterministic_profile_extract(text: str) -> dict:
     values: dict = {}
@@ -296,14 +531,34 @@ async def extract_profile(request: ProfileExtractionRequest):
     return {"extracted_fields":fields,"missing_fields":missing,"method":method,"requires_confirmation":True,"message":"Review and edit these extracted values before generating recommendations."}
 
 @app.post("/api/recommend")
-def recommend(profile: Profile):
-    return _rank(profile)
+def recommend(profile: Profile, user: User | None = Depends(optional_current_user)):
+    result = _rank(profile)
+    factory = get_session_factory()
+    if user is not None and factory is not None:
+        with factory.begin() as db:
+            db.add(Recommendation(user_id=user.id, profile_snapshot=profile.model_dump(), results=result["recommendations"]))
+    return result
+
+@app.get("/api/recommendations/latest")
+def latest_recommendations(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        saved_profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        if saved_profile is None:
+            return {"recommendations":[]}
+        latest = db.query(Recommendation).filter(Recommendation.user_id == user.id).order_by(Recommendation.created_at.desc()).first()
+        if latest is not None and latest.profile_snapshot == saved_profile.profile:
+            return {"recommendations":latest.results}
+        profile = Profile.model_validate(saved_profile.profile)
+        result = _rank(profile)
+        db.add(Recommendation(user_id=user.id, profile_snapshot=profile.model_dump(), results=result["recommendations"]))
+        return result
 
 @app.post("/api/simulate")
-def simulate(payload: dict):
+def simulate(payload: dict, user: User | None = Depends(optional_current_user)):
     profile = Profile.model_validate(payload.get("profile", {}))
     changes = payload.get("changes", {})
-    allowed = set(CATEGORIES) | {"monthly_income", "credit_score", "annual_fee_max"}
+    allowed = set(CATEGORIES) | {"monthly_income", "credit_score", "annual_fee_max", "reward_preference"}
     unknown = set(changes) - allowed
     if unknown:
         raise HTTPException(status_code=422, detail=f"Unsupported simulation fields: {', '.join(sorted(unknown))}")
@@ -330,10 +585,15 @@ def simulate(payload: dict):
         explanation = f"{after_top['name']} remains #1 under the changed profile; its estimated value is ₹{after_top['estimated_net_annual_value']:,}."
     else:
         explanation = "No eligible demo cards match the simulated profile."
-    return {"before":before,"after":after,"moved":moved,"explanation":explanation,"changes":changes}
+    result = {"before":before,"after":after,"moved":moved,"explanation":explanation,"changes":changes}
+    factory = get_session_factory()
+    if isinstance(user, User) and factory is not None:
+        with factory.begin() as db:
+            db.add(SimulationHistory(user_id=user.id, before_profile=profile.model_dump(), changes=changes, results=result))
+    return result
 
 @app.post("/api/compare")
-def compare(payload: dict):
+def compare(payload: dict, user: User | None = Depends(optional_current_user)):
     ids = payload.get("card_ids", [])
     if len(ids) < 2 or len(ids) > 4:
         raise HTTPException(422, "Choose between two and four cards")
@@ -342,12 +602,17 @@ def compare(payload: dict):
     found = [r for r in ranked if r["id"] in ids]
     if len(found) != len(set(ids)):
         raise HTTPException(404, "One or more cards are not eligible or unknown")
+    if isinstance(user, User):
+        factory = get_session_factory()
+        if factory:
+            with factory.begin() as db:
+                db.add(ComparisonHistory(user_id=user.id, profile_snapshot=profile.model_dump(), card_ids=ids, results=found))
     return {"cards":found}
 
 @app.post("/api/voice/transcribe")
 async def voice_transcribe(audio: UploadFile = File(...), language: str = Form("en")):
-    if language not in {"en", "hi", "te"}:
-        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+    if language not in {"en", "hi", "te", "ta"}:
+        raise HTTPException(status_code=422, detail="Language must be en, hi, te, or ta.")
     if audio.content_type not in {"audio/webm", "audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg"}:
         raise HTTPException(status_code=415, detail="Unsupported audio format.")
     raw = await audio.read(10 * 1024 * 1024 + 1)
@@ -367,8 +632,8 @@ async def voice_transcribe(audio: UploadFile = File(...), language: str = Form("
 async def voice_speak(payload: dict):
     language = str(payload.get("language", "en"))
     text_value = str(payload.get("text", "")).strip()
-    if language not in {"en", "hi", "te"}:
-        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+    if language not in {"en", "hi", "te", "ta"}:
+        raise HTTPException(status_code=422, detail="Language must be en, hi, te, or ta.")
     if not text_value or len(text_value) > 4000:
         raise HTTPException(status_code=422, detail="Text is required and must be under 4,000 characters.")
     provider = configured_voice_provider()
@@ -427,7 +692,7 @@ async def _llm_tool_answer(question: str, profile: Profile, language: str, histo
     provider = configured_provider()
     if provider is None:
         return None
-    language_name = {"en":"English","hi":"Hindi","te":"Telugu"}[language]
+    language_name = {"en":"English","hi":"Hindi","te":"Telugu","ta":"Tamil"}[language]
     system = (
         "You are the CardLens AI Advisor. You present and explain backend outputs; you are never the recommender. "
         "You MUST call the appropriate tool before making profile, ranking, comparison, simulation, reward, eligibility, or card-term claims. "
@@ -474,7 +739,7 @@ async def chat(payload: dict):
         raise HTTPException(status_code=422, detail="Message is required")
     language = str(payload.get("language", "en"))
     if language not in {"en","hi","te"}:
-        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+        raise HTTPException(status_code=422, detail="Language must be en, hi, te, or ta.")
     lower = question.lower()
     factual = any(term in lower for term in ("lounge", "forex", "foreign exchange", "annual fee", "joining fee", "cashback rule", "redemption", "exclusion"))
     try:
@@ -492,7 +757,7 @@ async def chat(payload: dict):
         provider = configured_provider()
         if provider:
             try:
-                system = "Answer the user's card-terms question only from the retrieved source excerpts below. If they do not answer it, say you do not have enough verified information. Do not infer or add terms. Respond in " + {"en":"English","hi":"Hindi","te":"Telugu"}[language] + "."
+                system = "Answer the user's card-terms question only from the retrieved source excerpts below. If they do not answer it, say you do not have enough verified information. Do not infer or add terms. Respond in " + {"en":"English","hi":"Hindi","te":"Telugu","ta":"Tamil"}[language] + "."
                 evidence = "\n".join(f"[{i+1}] {item['card_name']} | {item['source']} | verified {item['last_verified']}: {item['text']}" for i, item in enumerate(excerpts))
                 answer_message = await provider.chat([{"role":"system","content":system+"\n\n"+evidence},{"role":"user","content":question}])
                 answer = answer_message.get("content")

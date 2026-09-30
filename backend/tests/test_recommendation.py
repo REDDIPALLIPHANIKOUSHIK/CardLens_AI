@@ -7,16 +7,87 @@ from backend.app.database import get_session_factory
 from datetime import date
 import asyncio
 import os
+import uuid
 
 class RecommendationApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
         self.profile = {"monthly_income":70000,"credit_score":760,"annual_fee_max":1500,"reward_preference":"cashback","spending":{"shopping":15000,"dining":8000,"fuel":4000,"travel":5000}}
 
+    def test_signup_login_logout_and_persisted_profile(self):
+        email = f"cardlens-{uuid.uuid4()}@example.test"
+        signup = self.client.post('/api/auth/signup', json={"email":email,"password":"correct horse 2026","name":"Test User"})
+        self.assertEqual(signup.status_code, 201)
+        self.assertTrue(signup.cookies.get("cardlens_session"))
+        self.assertEqual(self.client.get('/api/auth/me').json()['user']['email'], email)
+        self.assertNotIn("password_hash", signup.json()["user"])
+        saved = self.client.put('/api/profile', json=self.profile)
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.json()["saved"])
+        self.assertEqual(self.client.get('/api/profile').json()["profile"]["credit_score"], 760)
+        ranked = self.client.post('/api/recommend', json=self.profile)
+        self.assertEqual(ranked.status_code, 200)
+        simulation = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"dining":9000,"reward_preference":"travel"}})
+        self.assertEqual(simulation.status_code, 200)
+        self.assertEqual(simulation.json()["changes"]["reward_preference"], "travel")
+        comparison = self.client.post('/api/compare', json={"profile":self.profile,"card_ids":[card["id"] for card in ranked.json()["recommendations"][:3]]})
+        self.assertEqual(comparison.status_code, 200)
+        self.assertEqual(len(comparison.json()["cards"]), 3)
+        activity = self.client.get('/api/history').json()["items"]
+        self.assertEqual({item["type"] for item in activity}, {"recommendation","simulation","comparison"})
+        conversation = self.client.post('/api/conversations', json={"language":"en","messages":[{"role":"user","text":"Why this match?"},{"role":"assistant","text":"Because the profile fits."}]})
+        self.assertEqual(conversation.status_code, 201)
+        conversation_id = conversation.json()["conversation"]["id"]
+        self.assertEqual(len(self.client.get('/api/conversations/latest').json()["conversation"]["messages"]), 2)
+        listed = self.client.get('/api/conversations').json()["items"]
+        self.assertEqual(listed[0]["id"], conversation_id)
+        self.assertEqual(self.client.get(f'/api/conversations/{conversation_id}').json()["conversation"]["messages"][0]["text"], "Why this match?")
+        renamed = self.client.patch(f'/api/conversations/{conversation_id}', json={"title":"Best match"})
+        self.assertEqual(renamed.status_code, 200)
+        self.assertEqual(renamed.json()["conversation"]["title"], "Best match")
+        favorite = self.client.post('/api/favorites/demo-travel')
+        self.assertEqual(favorite.status_code, 201)
+        self.assertEqual(self.client.get('/api/favorites').json()["items"][0]["card_id"], "demo-travel")
+        self.assertEqual(self.client.delete('/api/favorites/demo-travel').status_code, 200)
+        self.assertEqual(self.client.get('/api/favorites').json()["items"], [])
+        self.assertEqual(self.client.delete(f'/api/conversations/{conversation_id}').status_code, 200)
+        self.assertEqual(self.client.get('/api/conversations').json()["items"], [])
+        other = TestClient(app)
+        other_email = f"cardlens-other-{uuid.uuid4()}@example.com"
+        self.assertEqual(other.post('/api/auth/signup', json={"email":other_email,"password":"other account 2026","name":"Other User"}).status_code, 201)
+        self.assertEqual(other.get(f'/api/conversations/{conversation_id}').status_code, 404)
+        self.assertEqual(other.put(f'/api/conversations/{conversation_id}', json={"messages":[]}).status_code, 404)
+        self.assertEqual(other.delete(f'/api/conversations/{conversation_id}').status_code, 404)
+        self.assertEqual(other.post('/api/auth/logout').status_code, 200)
+        duplicate = self.client.post('/api/auth/signup', json={"email":email,"password":"correct horse 2026","name":"Test User"})
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(self.client.post('/api/auth/logout').status_code, 200)
+        self.assertEqual(self.client.get('/api/profile').status_code, 401)
+        login = self.client.post('/api/auth/login', json={"email":email,"password":"correct horse 2026"})
+        self.assertEqual(login.status_code, 200)
+        self.assertEqual(self.client.get('/api/profile').json()["profile"]["credit_score"], 760)
+        self.assertEqual(self.client.put('/api/settings', json={"voice_language":"ta"}).status_code, 200)
+        self.assertEqual(self.client.get('/api/settings').json()["voice_language"], "ta")
+        changed = self.client.post('/api/auth/password', json={"current_password":"correct horse 2026","new_password":"correct horse 2027"})
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(self.client.get('/api/auth/me').status_code, 200)
+        self.assertEqual(self.client.post('/api/auth/logout').status_code, 200)
+        self.assertEqual(self.client.post('/api/auth/login', json={"email":email,"password":"correct horse 2026"}).status_code, 401)
+        self.assertEqual(self.client.post('/api/auth/login', json={"email":email,"password":"correct horse 2027"}).status_code, 200)
+        reset = self.client.delete('/api/profile')
+        self.assertEqual(reset.status_code, 200)
+        self.assertFalse(self.client.get('/api/profile').json()["complete"])
+        deleted = self.client.request("DELETE","/api/auth/account",json={"password":"correct horse 2027"})
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(self.client.get('/api/auth/me').status_code, 401)
+
+    def test_profile_requires_authentication(self):
+        response = self.client.get('/api/profile')
+        self.assertEqual(response.status_code, 401)
+        response = self.client.put('/api/profile', json=self.profile)
+        self.assertEqual(response.status_code, 401)
+
     def test_profile_validation_and_card_detail_routes(self):
-        response = self.client.post('/api/profile', json=self.profile)
-        self.assertTrue(response.json()['validated'])
-        self.assertEqual(response.json()['storage'], 'session_only')
         card = self.client.get('/api/cards/demo-travel')
         self.assertEqual(card.status_code, 200)
         self.assertIn('Synthetic demo data', card.json()['notice'])
