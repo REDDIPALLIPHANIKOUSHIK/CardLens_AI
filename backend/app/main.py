@@ -348,6 +348,7 @@ def account_history(user: User = Depends(current_user)):
         recommendations = db.query(Recommendation).filter(Recommendation.user_id == user.id).order_by(Recommendation.created_at.desc()).limit(5).all()
         simulations = db.query(SimulationHistory).filter(SimulationHistory.user_id == user.id).order_by(SimulationHistory.created_at.desc()).limit(5).all()
         comparisons = db.query(ComparisonHistory).filter(ComparisonHistory.user_id == user.id).order_by(ComparisonHistory.created_at.desc()).limit(5).all()
+        conversations = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).limit(3).all()
         activity = [
             {"type":"recommendation","created_at":item.created_at.isoformat() if item.created_at else None,
              "summary":(item.results[0].get("name","Recommendation run") + " ranked first") if item.results else "Recommendation run saved"}
@@ -361,6 +362,11 @@ def account_history(user: User = Depends(current_user)):
             {"type":"comparison","created_at":item.created_at.isoformat() if item.created_at else None,
              "summary":"Compared " + " and ".join(card.get("name","card") for card in item.results[:3])}
             for item in comparisons
+        )
+        activity.extend(
+            {"type":"conversation","created_at":item.updated_at.isoformat() if item.updated_at else None,
+             "summary":"Advisor conversation in " + item.language.upper()}
+            for item in conversations
         )
         activity.sort(key=lambda item:item["created_at"] or "", reverse=True)
         return {"items":activity[:8]}
