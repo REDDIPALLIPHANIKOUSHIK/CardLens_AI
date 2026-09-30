@@ -180,6 +180,99 @@ def health():
 def cards():
     return {"data":CARDS,"notice":"Synthetic demo data. Terms are not current issuer offers."}
 
+@app.get("/api/cards/{card_id}")
+def card_details(card_id: str):
+    card = next((item for item in CARDS if item["id"] == card_id), None)
+    if card is None:
+        raise HTTPException(status_code=404, detail={"success":False,"error_code":"CARD_NOT_FOUND","message":"Card not found in the demo catalog."})
+    return {"data":card,"notice":"Synthetic demo data. Terms are not current issuer offers."}
+
+@app.post("/api/profile")
+def validate_profile(profile: Profile):
+    return {"profile":profile.model_dump(),"validated":True,"storage":"session_only"}
+
+class ProfileExtractionRequest(BaseModel):
+    text: str = Field(min_length=5, max_length=4000)
+    language: Literal["en","hi","te"] = "en"
+
+def _deterministic_profile_extract(text: str) -> dict:
+    values: dict = {}
+    amount = r"(?:₹|rs\\.?\\s*)?([0-9][0-9,]*(?:\\.[0-9]+)?)"
+    income = re.search(r"(?:earn(?:ing)?|income|salary)[^0-9]{0,35}" + amount, text, re.I)
+    if income:
+        values["monthly_income"] = float(income.group(1).replace(",", ""))
+    credit = re.search(r"(?:credit\\s+score|cibil(?:\\s+score)?|score)[^0-9]{0,15}([0-9]{3})", text, re.I)
+    if credit:
+        values["credit_score"] = int(credit.group(1))
+    fee = re.search(r"(?:annual|yearly) fee[^0-9]{0,25}" + amount, text, re.I)
+    if fee:
+        values["annual_fee_max"] = float(fee.group(1).replace(",", ""))
+    preference = re.search(r"prefer(?:ence)?(?:\\s+(?:cashback|cash back|travel|fuel|rewards?))|(?:cashback|cash back|travel|fuel)\\s+prefer", text, re.I)
+    if preference:
+        found = preference.group(0).lower()
+        values["reward_preference"] = "cashback" if "cash" in found else ("travel" if "travel" in found else ("fuel" if "fuel" in found else "rewards"))
+    categories = {
+        "shopping":r"(?:online\\s+shopping|shopping|online)",
+        "dining":r"(?:dining|restaurants?)",
+        "fuel":r"fuel",
+        "travel":r"travel",
+        "grocery":r"(?:grocer(?:y|ies)|supermarket)",
+        "utilities":r"(?:utilities|utility bills?)",
+    }
+    spending = {}
+    for key, term in categories.items():
+        patterns = [
+            r"(?:" + term + r")[^0-9]{0,30}" + amount,
+            amount + r"[^0-9]{0,20}(?:" + term + r")",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.I)
+            if match:
+                spending[key] = float(match.group(1).replace(",", ""))
+                break
+    if spending:
+        values["spending"] = spending
+    return values
+
+@app.post("/api/profile/extract")
+async def extract_profile(request: ProfileExtractionRequest):
+    candidate = None
+    method = "deterministic"
+    provider = configured_provider()
+    if provider:
+        system = (
+            "Extract only facts explicitly stated by the user into a JSON object. "
+            "Allowed keys: monthly_income, credit_score, age, annual_fee_max, reward_preference, spending. "
+            "spending keys: shopping, dining, fuel, travel, grocery, utilities. "
+            "Return only valid JSON; omit unknown fields and never infer values. Preserve numeric INR values."
+        )
+        try:
+            response = await provider.chat([{"role":"system","content":system},{"role":"user","content":request.text}])
+            raw = response.get("content")
+            candidate = json.loads(raw) if isinstance(raw, str) else None
+            if not isinstance(candidate, dict):
+                raise ValueError("Expected a JSON object")
+            method = "llm_extraction"
+        except Exception:
+            try:
+                response = await provider.chat([{"role":"system","content":system+" Output a strict JSON object only; no markdown."},{"role":"user","content":request.text}])
+                raw = response.get("content")
+                candidate = json.loads(raw) if isinstance(raw, str) else None
+                if not isinstance(candidate, dict):
+                    raise ValueError("Expected a JSON object")
+                method = "llm_extraction_retry"
+            except Exception:
+                candidate = None
+    if candidate is None:
+        candidate = _deterministic_profile_extract(request.text)
+    try:
+        normalized = Profile.model_validate(candidate).model_dump(exclude_unset=True)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail={"success":False,"error_code":"PROFILE_EXTRACTION_INVALID","message":"We couldn't validate the extracted values. Please review and enter them manually."}) from exc
+    fields = {key:value for key,value in normalized.items() if key in {"monthly_income","credit_score","age","annual_fee_max","reward_preference","spending"}}
+    missing = [name for name in ("monthly_income","credit_score","shopping","dining","fuel","travel") if name not in (fields.get("spending",{}) if name in CATEGORIES else fields)]
+    return {"extracted_fields":fields,"missing_fields":missing,"method":method,"requires_confirmation":True,"message":"Review and edit these extracted values before generating recommendations."}
+
 @app.post("/api/recommend")
 def recommend(profile: Profile):
     return _rank(profile)
