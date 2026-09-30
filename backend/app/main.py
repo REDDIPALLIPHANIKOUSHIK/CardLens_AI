@@ -324,6 +324,14 @@ def list_conversations(user: User = Depends(current_user)):
             items.append(conversation)
         return {"items":items}
 
+@app.get("/api/conversations/latest")
+def latest_conversation(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).first()
+        return {"conversation":_conversation_dict(session, db) if session else None}
+
+
 @app.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, user: User = Depends(current_user)):
     factory = _account_db()
@@ -368,13 +376,6 @@ def clear_conversations(user: User = Depends(current_user)):
             db.query(ConversationMessage).filter(ConversationMessage.session_id.in_(session_ids)).delete(synchronize_session=False)
             db.query(ConversationSession).filter(ConversationSession.id.in_(session_ids)).delete(synchronize_session=False)
     return {"deleted":len(session_ids)}
-
-@app.get("/api/conversations/latest")
-def latest_conversation(user: User = Depends(current_user)):
-    factory = _account_db()
-    with factory() as db:
-        session = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).first()
-        return {"conversation":_conversation_dict(session, db) if session else None}
 
 @app.post("/api/conversations", status_code=201)
 def create_conversation(payload: ConversationPayload, user: User = Depends(current_user)):
