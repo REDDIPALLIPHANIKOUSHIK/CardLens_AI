@@ -1,5 +1,6 @@
 import unittest
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 from backend.app.main import app
 from backend.app.models import Base, CardDocument
 
@@ -56,6 +57,27 @@ class RecommendationApiTests(unittest.TestCase):
         result = self.client.post('/api/compare', json={"profile":self.profile,"card_ids":[ranked[0]['id'],ranked[1]['id']]})
         self.assertEqual(result.status_code, 200)
         self.assertEqual(len(result.json()['cards']), 2)
+
+    def test_empty_rag_returns_insufficient_evidence(self):
+        with patch('backend.app.main.configured_embedding_provider', return_value=None):
+            response = self.client.post('/api/rag/search', json={"query":"lounge access"})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['grounded'])
+        self.assertIn('not have enough verified information', response.json()['answer'])
+
+    def test_factual_chat_uses_rag_and_never_guesses(self):
+        with patch('backend.app.main.configured_embedding_provider', return_value=None):
+            response = self.client.post('/api/chat', json={"message":"Does this card have lounge access?","profile":self.profile})
+        self.assertFalse(response.json()['grounded'])
+        self.assertEqual(response.json()['tools_called'], ['search_card_knowledge'])
+
+    def test_voice_unavailable_is_a_controlled_fallback(self):
+        with patch('backend.app.main.configured_voice_provider', return_value=None):
+            transcribe = self.client.post('/api/voice/transcribe', files={"audio":("clip.webm",b"audio","audio/webm")}, data={"language":"en"})
+            speak = self.client.post('/api/voice/speak', json={"text":"Hello","language":"en"})
+        self.assertEqual(transcribe.status_code, 503)
+        self.assertEqual(speak.status_code, 503)
+        self.assertIn('Continue with text', transcribe.json()['detail']['message'])
 
     def test_models_include_required_relational_tables_and_vector(self):
         required = {'users','user_profiles','credit_cards','card_benefits','card_documents','recommendations','recommendation_explanations','conversation_sessions','conversation_messages','simulation_history'}
