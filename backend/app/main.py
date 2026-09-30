@@ -4,17 +4,20 @@ from typing import Literal
 from collections import defaultdict, deque
 from threading import Lock
 import json, logging, os, re, time, uuid
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
-from .database import check_database, database_url
+from .database import check_database, database_url, get_session_factory
+from .auth import current_user, optional_current_user, router as auth_router
+from .models import Recommendation, SimulationHistory, User, UserProfile
 from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger('cardlens.api')
 app = FastAPI(title="CardLens AI", version="0.1.0", description="Deterministic demo credit-card suitability recommendations")
+app.include_router(auth_router)
 origins = [value.strip() for value in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",") if value.strip()]
 
 def validate_runtime_configuration() -> None:
@@ -48,7 +51,7 @@ async def request_controls(request: Request, call_next):
     supplied = request.headers.get("x-request-id", "")
     request_id = supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", supplied) else str(uuid.uuid4())
     request.state.request_id = request_id
-    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat", "/api/rag/search", "/api/voice/transcribe", "/api/voice/speak", "/api/profile/extract"}
+    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat", "/api/rag/search", "/api/voice/transcribe", "/api/voice/speak", "/api/profile/extract", "/api/auth/signup", "/api/auth/login"}
     if limited:
         client = request.client.host if request.client else "unknown"
         key = f"{client}:{request.url.path}"
@@ -207,9 +210,32 @@ def card_details(card_id: str):
         raise HTTPException(status_code=404, detail={"success":False,"error_code":"CARD_NOT_FOUND","message":"Card not found in the demo catalog."})
     return {"data":card,"notice":"Synthetic demo data. Terms are not current issuer offers."}
 
+def _account_db():
+    factory = get_session_factory()
+    if factory is None:
+        raise HTTPException(status_code=503, detail={"code":"ACCOUNT_STORAGE_UNAVAILABLE","message":"Account storage is temporarily unavailable."})
+    return factory
+
+@app.get("/api/profile")
+def load_profile(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        row = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        return {"profile":row.profile if row else None,"complete":row is not None}
+
+@app.put("/api/profile")
 @app.post("/api/profile")
-def validate_profile(profile: Profile):
-    return {"profile":profile.model_dump(),"validated":True,"storage":"session_only"}
+def save_profile(profile: Profile, user: User = Depends(current_user)):
+    factory = _account_db()
+    value = profile.model_dump()
+    with factory.begin() as db:
+        row = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        if row is None:
+            row = UserProfile(user_id=user.id, profile=value)
+            db.add(row)
+        else:
+            row.profile = value
+    return {"profile":value,"complete":True,"saved":True}
 
 class ProfileExtractionRequest(BaseModel):
     text: str = Field(min_length=5, max_length=4000)
@@ -296,11 +322,16 @@ async def extract_profile(request: ProfileExtractionRequest):
     return {"extracted_fields":fields,"missing_fields":missing,"method":method,"requires_confirmation":True,"message":"Review and edit these extracted values before generating recommendations."}
 
 @app.post("/api/recommend")
-def recommend(profile: Profile):
-    return _rank(profile)
+def recommend(profile: Profile, user: User | None = Depends(optional_current_user)):
+    result = _rank(profile)
+    factory = get_session_factory()
+    if user is not None and factory is not None:
+        with factory.begin() as db:
+            db.add(Recommendation(user_id=user.id, profile_snapshot=profile.model_dump(), results=result["recommendations"]))
+    return result
 
 @app.post("/api/simulate")
-def simulate(payload: dict):
+def simulate(payload: dict, user: User | None = Depends(optional_current_user)):
     profile = Profile.model_validate(payload.get("profile", {}))
     changes = payload.get("changes", {})
     allowed = set(CATEGORIES) | {"monthly_income", "credit_score", "annual_fee_max"}
@@ -330,7 +361,12 @@ def simulate(payload: dict):
         explanation = f"{after_top['name']} remains #1 under the changed profile; its estimated value is ₹{after_top['estimated_net_annual_value']:,}."
     else:
         explanation = "No eligible demo cards match the simulated profile."
-    return {"before":before,"after":after,"moved":moved,"explanation":explanation,"changes":changes}
+    result = {"before":before,"after":after,"moved":moved,"explanation":explanation,"changes":changes}
+    factory = get_session_factory()
+    if user is not None and factory is not None:
+        with factory.begin() as db:
+            db.add(SimulationHistory(user_id=user.id, before_profile=profile.model_dump(), changes=changes, results=result))
+    return result
 
 @app.post("/api/compare")
 def compare(payload: dict):
