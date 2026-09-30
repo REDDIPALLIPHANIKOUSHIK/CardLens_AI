@@ -39,7 +39,7 @@ def validate_runtime_configuration() -> None:
         raise RuntimeError("Production FRONTEND_ORIGINS must contain at least one HTTPS origin.")
 
 validate_runtime_configuration()
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Request-ID"])
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-Request-ID"])
 
 _RATE_WINDOW = 60
 _RATE_LIMIT = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "60"))
