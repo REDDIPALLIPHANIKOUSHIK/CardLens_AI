@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .database import check_database, database_url
+from .ai.providers import configured_provider
+from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger('cardlens.api')
@@ -26,7 +28,7 @@ async def request_controls(request: Request, call_next):
     supplied = request.headers.get("x-request-id", "")
     request_id = supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", supplied) else str(uuid.uuid4())
     request.state.request_id = request_id
-    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat"}
+    limited = request.method == "POST" and request.url.path in {"/api/recommend", "/api/simulate", "/api/compare", "/api/chat", "/api/rag/search"}
     if limited:
         client = request.client.host if request.client else "unknown"
         key = f"{client}:{request.url.path}"
@@ -226,14 +228,48 @@ def compare(payload: dict):
         raise HTTPException(404, "One or more cards are not eligible or unknown")
     return {"cards":found}
 
+@app.post("/api/rag/search")
+async def rag_search(payload: dict):
+    query = str(payload.get("query", "")).strip()
+    if not query:
+        raise HTTPException(status_code=422, detail="query is required")
+    return await search_card_knowledge(query, configured_provider(), payload.get("card_id"), int(payload.get("limit", 5)))
+
 @app.post("/api/chat")
-def chat(payload: dict):
+async def chat(payload: dict):
     question = str(payload.get("message", "")).strip()
     if not question:
-        raise HTTPException(422, "Message is required")
-    if any(term in question.lower() for term in ("lounge","forex","fee")):
-        return {"answer":"I can show the demo catalog fields, but they are synthetic and not verified issuer terms. Check the issuer’s current terms before acting.","mode":"deterministic","grounded":True}
-    return {"answer":"I can explain the deterministic ranking, compare demo cards, and simulate spending changes. Card-specific terms are synthetic demo data; I won't present them as verified offers.","mode":"fallback","grounded":True}
+        raise HTTPException(status_code=422, detail="Message is required")
+    lower = question.lower()
+    factual = any(term in lower for term in ("lounge", "forex", "foreign exchange", "annual fee", "joining fee", "cashback rule", "redemption", "exclusion"))
+    if factual:
+        knowledge = await search_card_knowledge(question, configured_provider(), payload.get("card_id"))
+        if not knowledge["grounded"]:
+            return {"answer":INSUFFICIENT_EVIDENCE,"mode":"retrieval_fallback","grounded":False,"sources":[],"tools_called":["search_card_knowledge"]}
+        excerpts = knowledge["chunks"][:2]
+        answer = "Verified source excerpts:\n" + "\n".join(f"• {item['card_name']}: {item['text']}" for item in excerpts)
+        return {"answer":answer,"mode":"retrieval","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
+    try:
+        profile = Profile.model_validate(payload.get("profile", {}))
+    except Exception:
+        raise HTTPException(status_code=422, detail="A valid structured profile is required for personalized answers.")
+    ranked = _rank(profile)["recommendations"]
+    if not ranked:
+        return {"answer":"There are no eligible synthetic demo cards for the supplied profile.","mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
+    if any(term in lower for term in ("compare", "top two", "difference", "versus", " vs ")):
+        compared = ranked[:2]
+        if len(compared) < 2:
+            return {"answer":"I found only one eligible demo card to compare.","mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
+        delta = compared[0]["estimated_net_annual_value"] - compared[1]["estimated_net_annual_value"]
+        answer = f"{compared[0]['name']} ranks first with a CardLens Score of {compared[0]['score']} and estimated net value ₹{compared[0]['estimated_net_annual_value']:,}. {compared[1]['name']} has estimated net value ₹{compared[1]['estimated_net_annual_value']:,}. The estimated-value difference is ₹{abs(delta):,}; these are synthetic demo estimates."
+        return {"answer":answer,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations","compare_cards"],"cards":compared}
+    if any(term in lower for term in ("why", "recommend", "best card", "shopping")):
+        first = ranked[0]
+        answer = f"{first['name']} is currently ranked first with a model-generated suitability score of {first['score']}/100. " + "; ".join(first["why"]) + " This is a demo estimate, not an approval prediction."
+        return {"answer":answer,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"],"card":first}
+    if "what if" in lower or "simulation" in lower:
+        return {"answer":"Use the What-If controls to change spending or fee preference; the deterministic simulator will recalculate eligibility, values, scores, and ranking without an AI call.","mode":"deterministic_tools","grounded":True,"tools_called":["run_what_if_simulation"]}
+    return {"answer":"I can explain your current ranking, compare your top eligible demo cards, and search the verified card knowledge base. Card terms are not answered unless a source document is indexed.","mode":"deterministic_fallback","grounded":True,"tools_called":[]}
 
 @app.get("/api/ready")
 def ready():
