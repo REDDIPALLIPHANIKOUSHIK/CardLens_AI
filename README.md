@@ -73,7 +73,7 @@ On Windows PowerShell, copy the environment file with `Copy-Item .env.example .e
 
 ## Environment variables
 
-`.env.example` documents the local database URL/password, allowed frontend origins, API rate limit, static frontend API URL, and optional LLM, embedding, and voice provider settings. Leave AI keys blank to run deterministic ranking and text fallbacks. Keep all provider keys on the backend; never place secrets in `VITE_*` values.
+`.env.example` documents the local database URL/password, allowed frontend origins, API rate limit, static frontend API URL, application mode, and optional LLM, embedding, and voice provider settings. Production API mode requires an explicit database URL and HTTPS CORS origins. Leave AI keys blank to run deterministic ranking and text fallbacks. Keep all provider keys on the backend; never place secrets in `VITE_*` values.
 
 ## Verification
 
