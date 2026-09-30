@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
 from .database import check_database, database_url, get_session_factory
 from .auth import current_user, optional_current_user, router as auth_router
-from .models import Recommendation, SimulationHistory, User, UserProfile
+from .models import ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserProfile
 from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
