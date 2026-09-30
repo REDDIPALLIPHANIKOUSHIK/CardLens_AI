@@ -46,6 +46,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build API image
-        run: docker build -f backend/Dockerfile -t cardlens-api:ci .
+        run: docker compose build api
       - name: Build frontend image
-        run: docker build -t cardlens-web:ci ./frontend
+        run: docker compose build frontend
+      - name: Smoke test production-like Compose stack
+        run: |
+          docker compose up -d db
+          docker compose run --rm api alembic -c backend/alembic.ini upgrade head
+          docker compose run --rm api python scripts/seed_database.py
+          docker compose up -d
+          python scripts/smoke_test.py
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose down -v
