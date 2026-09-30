@@ -140,14 +140,36 @@ def recommend(profile: Profile):
 
 @app.post("/api/simulate")
 def simulate(payload: dict):
-    try:
-        profile = Profile.model_validate(payload.get("profile", {}))
-        changes = payload.get("changes", {})
-        updated = profile.model_copy(update={"spending":{**profile.spending, **changes}})
-        updated = Profile.model_validate(updated.model_dump())
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"before":_rank(profile),"after":_rank(updated)}
+    profile = Profile.model_validate(payload.get("profile", {}))
+    changes = payload.get("changes", {})
+    allowed = set(CATEGORIES) | {"monthly_income", "credit_score", "annual_fee_max"}
+    unknown = set(changes) - allowed
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unsupported simulation fields: {', '.join(sorted(unknown))}")
+    updated_data = profile.model_dump()
+    for key, value in changes.items():
+        if key in CATEGORIES:
+            updated_data["spending"][key] = value
+        else:
+            updated_data[key] = value
+    updated = Profile.model_validate(updated_data)
+    before, after = _rank(profile), _rank(updated)
+    before_positions = {r["id"]: i + 1 for i, r in enumerate(before["recommendations"])}
+    after_positions = {r["id"]: i + 1 for i, r in enumerate(after["recommendations"])}
+    moved = [
+        {"card_id": card_id, "from": before_positions.get(card_id), "to": after_positions.get(card_id)}
+        for card_id in sorted(set(before_positions) | set(after_positions))
+        if before_positions.get(card_id) != after_positions.get(card_id)
+    ]
+    before_top = before["recommendations"][0] if before["recommendations"] else None
+    after_top = after["recommendations"][0] if after["recommendations"] else None
+    if before_top and after_top and before_top["id"] != after_top["id"]:
+        explanation = f"{after_top['name']} moved to #1 because the changed profile shifted its score to {after_top['score']}."
+    elif before_top and after_top:
+        explanation = f"{after_top['name']} remains #1 under the changed profile; its estimated value is ₹{after_top['estimated_net_annual_value']:,}."
+    else:
+        explanation = "No eligible demo cards match the simulated profile."
+    return {"before":before,"after":after,"moved":moved,"explanation":explanation,"changes":changes}
 
 @app.post("/api/compare")
 def compare(payload: dict):
