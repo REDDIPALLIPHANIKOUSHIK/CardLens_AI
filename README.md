@@ -53,7 +53,7 @@ For the full local stack, follow [docs/deployment.md](docs/deployment.md). Postg
 
 ## Score, What-If, Advisor, and RAG
 
-The CardLens Score endpoint includes six weighted factors, category reward estimates, recommendation reasons, rank-relative explanations, profile completeness, and a measurable confidence estimate with a reason. What-If accepts category spend, income, score, and fee-preference changes and returns rank movements. The Advisor uses deterministic calculations and, when configured, optional LLM tool calls; factual issuer questions use pgvector retrieval and return source metadata. Empty or unavailable RAG fails closed. Optional transcription and speech endpoints degrade to a text fallback.
+The CardLens Score endpoint includes six weighted factors, category reward estimates, recommendation reasons, rank-relative explanations, profile completeness, and a measurable confidence estimate with a reason. What-If accepts category spend, income, score, and fee-preference changes and returns rank movements. The Advisor uses deterministic calculations and, when configured, optional LLM tool calls; factual issuer questions use pgvector retrieval and return source metadata. Empty or unavailable RAG fails closed. Optional transcription and speech endpoints degrade to a text fallback. English, Hindi, Telugu, and Tamil are accepted; voice quality and locale availability depend on configured providers or the user's browser.
 
 To ingest source material, create JSONL with the required metadata and verified primary-source text, then run `python scripts/ingest_documents.py path/to/documents.jsonl`. The embedding adapter requires a configured embedding key. Do not label synthetic examples as verified issuer documents.
 
@@ -93,7 +93,7 @@ CI also applies the PostgreSQL/pgvector migration, seeds demo data, runs pytest,
 
 - The demo offer catalog is synthetic and is not an up-to-date list of real credit cards.
 - Reward caps, exclusions, joining fees, redemption limitations, and benefit conditions are not modeled for the synthetic catalog.
-- Account authentication and profile/history persistence are implemented, but profile consent/retention controls, account recovery/deletion, comparison history, multiple conversation archives, production distributed rate limiting, and production deployment verification remain incomplete. Do not enter highly sensitive financial information.
+- Account authentication and profile/history persistence, comparison/saved cards, password change, and password-confirmed account deletion are implemented. Profile consent/retention controls, email-based recovery, multiple conversation archives, production distributed rate limiting, and production deployment verification remain incomplete. Do not enter highly sensitive financial information.
 - No recommendation outcome dataset is available, so there are no model-performance claims.
 
 See [implementation status](docs/implementation-status.md), [architecture](docs/architecture.md), [testing](docs/testing.md), [local/Docker deployment](docs/deployment.md), [Vercel deployment](deployment-vercel.md), and [interview notes](docs/interview-preparation.md).
