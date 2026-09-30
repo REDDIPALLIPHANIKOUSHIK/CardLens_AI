@@ -804,6 +804,8 @@ async def chat(payload: dict):
 @app.get("/api/ready", include_in_schema=False)
 def ready():
     available, database = check_database()
+    if not available and database == "migrations_required":
+        raise HTTPException(status_code=503, detail={"success":False,"error_code":"DATABASE_MIGRATIONS_REQUIRED","message":"The database is reachable but its schema is missing or out of date. With the production DATABASE_URL set, run: python -m alembic -c backend/alembic.ini upgrade head"})
     if not available:
         raise HTTPException(status_code=503, detail={"success":False,"error_code":"DATABASE_UNAVAILABLE","message":"Persistent storage is temporarily unavailable."})
     return {"status":"ready","mode":"DEMO" if not database_url() else "POSTGRESQL","database":database}
