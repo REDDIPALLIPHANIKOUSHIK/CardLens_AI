@@ -27,8 +27,9 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/profile').json()["profile"]["credit_score"], 760)
         ranked = self.client.post('/api/recommend', json=self.profile)
         self.assertEqual(ranked.status_code, 200)
-        simulation = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"dining":9000}})
+        simulation = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"dining":9000,"reward_preference":"travel"}})
         self.assertEqual(simulation.status_code, 200)
+        self.assertEqual(simulation.json()["changes"]["reward_preference"], "travel")
         comparison = self.client.post('/api/compare', json={"profile":self.profile,"card_ids":[card["id"] for card in ranked.json()["recommendations"][:2]]})
         self.assertEqual(comparison.status_code, 200)
         activity = self.client.get('/api/history').json()["items"]
