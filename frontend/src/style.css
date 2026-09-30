@@ -13,3 +13,5 @@
 @media(max-width:520px){.advisor-launch{right:12px;bottom:12px}.advisor-panel{right:8px;bottom:65px;width:calc(100vw - 16px);height:min(540px,calc(100vh - 85px))}}
 
 .moved-list{display:grid;gap:4px;border-top:1px solid #ffffff20;margin-top:10px;padding-top:8px}.moved-list b{font-size:8px;color:#d9e8dc}.moved-list span{font-size:7px;color:#a9c6b1}
+
+.extract-box{padding:13px;background:#f7faf7;border:1px solid #e8efea;border-radius:8px;margin:13px 0 16px}.extract-box label{display:block;font-size:9px;font-weight:700;color:#40584b;margin-bottom:7px}.extract-box textarea{width:100%;resize:vertical;border:1px solid #dfe8e2;border-radius:6px;padding:9px 10px;background:white;color:#253c31;font:10px/1.5 'DM Sans';outline:none}.extract-box textarea:focus{border-color:#67a987;box-shadow:0 0 0 2px #67a98722}.extract-box>small{display:block;font-size:8px;color:#8b9991;line-height:1.5;margin:6px 0}.extract-button{width:auto;padding:8px 12px}.extract-notice{font-size:8px;color:#39815e;line-height:1.5;margin-top:8px}
