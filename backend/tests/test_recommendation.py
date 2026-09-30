@@ -51,7 +51,17 @@ class RecommendationApiTests(unittest.TestCase):
         login = self.client.post('/api/auth/login', json={"email":email,"password":"correct horse 2026"})
         self.assertEqual(login.status_code, 200)
         self.assertEqual(self.client.get('/api/profile').json()["profile"]["credit_score"], 760)
+        self.assertEqual(self.client.put('/api/settings', json={"voice_language":"te"}).status_code, 200)
+        self.assertEqual(self.client.get('/api/settings').json()["voice_language"], "te")
+        changed = self.client.post('/api/auth/password', json={"current_password":"correct horse 2026","new_password":"correct horse 2027"})
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(self.client.get('/api/auth/me').status_code, 200)
         self.assertEqual(self.client.post('/api/auth/logout').status_code, 200)
+        self.assertEqual(self.client.post('/api/auth/login', json={"email":email,"password":"correct horse 2026"}).status_code, 401)
+        self.assertEqual(self.client.post('/api/auth/login', json={"email":email,"password":"correct horse 2027"}).status_code, 200)
+        deleted = self.client.request("DELETE","/api/auth/account",json={"password":"correct horse 2027"})
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(self.client.get('/api/auth/me').status_code, 401)
 
     def test_profile_requires_authentication(self):
         response = self.client.get('/api/profile')
