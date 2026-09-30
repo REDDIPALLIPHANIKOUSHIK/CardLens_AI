@@ -4,7 +4,7 @@
 
 CI runs on pushes and pull requests:
 
-- Backend suite (pytest): `pytest -q backend/tests`
+- Backend suite (pytest): `python -m pytest -q backend/tests`
 - PostgreSQL/pgvector migrations and seed: `alembic -c backend/alembic.ini upgrade head`, then `python scripts/seed_database.py`
 - Frontend TypeScript check and production build: `cd frontend && npm install && npm run build`
 - Production Docker image builds for API and Nginx-served frontend.
