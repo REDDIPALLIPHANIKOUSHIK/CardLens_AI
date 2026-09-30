@@ -71,20 +71,26 @@ def _new_session(db, user: User, response: Response) -> None:
 def _public_user(user: User) -> dict:
     return {"id":user.id,"email":user.email,"name":user.name}
 
-def current_user(request: Request) -> User:
+def optional_current_user(request: Request) -> User | None:
     raw = request.cookies.get(COOKIE_NAME)
     if not raw:
-        raise HTTPException(status_code=401, detail={"code":"AUTH_REQUIRED","message":"Please sign in to continue."})
+        return None
+    factory = get_session_factory()
+    if factory is None:
+        return None
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
-    factory = _factory()
     with factory() as db:
         row = db.execute(select(AuthSession, User).join(User, User.id == AuthSession.user_id).where(
             AuthSession.token_hash == token_hash,
             AuthSession.expires_at > datetime.now(timezone.utc),
         )).first()
-        if not row:
-            raise HTTPException(status_code=401, detail={"code":"AUTH_REQUIRED","message":"Please sign in to continue."})
-        return row[1]
+        return row[1] if row else None
+
+def current_user(request: Request) -> User:
+    user = optional_current_user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail={"code":"AUTH_REQUIRED","message":"Please sign in to continue."})
+    return user
 
 @router.post("/signup", status_code=201)
 def signup(payload: SignupInput, response: Response):
