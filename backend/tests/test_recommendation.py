@@ -3,6 +3,9 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch
 from backend.app.main import app
 from backend.app.models import Base, CardDocument
+from backend.app.database import get_session_factory
+from datetime import date
+import asyncio
 
 class RecommendationApiTests(unittest.TestCase):
     def setUp(self):
@@ -78,6 +81,44 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(transcribe.status_code, 503)
         self.assertEqual(speak.status_code, 503)
         self.assertIn('Continue with text', transcribe.json()['detail']['message'])
+
+    def test_llm_tool_call_uses_backend_ranking_result(self):
+        class FakeProvider:
+            async def chat(self, messages, tools=None):
+                if tools:
+                    return {"tool_calls":[{"id":"test-call","function":{"name":"get_recommendations","arguments":"{}"}}]}
+                self.assert_tool_result = any(m.get("role") == "tool" for m in messages)
+                return {"content":"Based on the calculated CardLens result, here is the explanation."}
+        fake = FakeProvider()
+        with patch('backend.app.main.configured_provider', return_value=fake):
+            response = self.client.post('/api/chat', json={"message":"Why did you recommend this card?","profile":self.profile})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['mode'], 'llm_tools')
+        self.assertIn('get_recommendations', response.json()['tools_called'])
+        self.assertTrue(fake.assert_tool_result)
+
+    def test_pgvector_retrieval_returns_source_metadata(self):
+        factory = get_session_factory()
+        if factory is None:
+            self.skipTest("PostgreSQL service is only configured in CI")
+        doc = CardDocument(id="rag-test-document",card_id="demo-travel",card_name="Demo travel card",source="https://example.org/verified-terms",document_version="test-v1",last_verified=date(2026,9,30),chunk_text="This test source states that lounge entry has a stated visit condition.",embedding=[1.0]+[0.0]*383,is_demo=False)
+        with factory.begin() as session:
+            session.merge(doc)
+        class FakeEmbedding:
+            async def embed(self, text):
+                return [1.0]+[0.0]*383
+        async def run_search():
+            from backend.app.rag import search_card_knowledge
+            return await search_card_knowledge("lounge access",FakeEmbedding(),"demo-travel")
+        try:
+            from unittest.mock import patch
+            with patch("backend.app.rag.get_session_factory",return_value=factory):
+                result = asyncio.run(run_search())
+            self.assertTrue(result['grounded'])
+            self.assertEqual(result['sources'][0]['source'],"https://example.org/verified-terms")
+        finally:
+            with factory.begin() as session:
+                session.query(CardDocument).filter(CardDocument.id == "rag-test-document").delete()
 
     def test_models_include_required_relational_tables_and_vector(self):
         required = {'users','user_profiles','credit_cards','card_benefits','card_documents','recommendations','recommendation_explanations','conversation_sessions','conversation_messages','simulation_history'}
