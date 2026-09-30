@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
 from .database import check_database, database_url
-from .ai.providers import configured_provider
+from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
 
@@ -238,7 +238,7 @@ async def voice_transcribe(audio: UploadFile = File(...), language: str = Form("
     raw = await audio.read(10 * 1024 * 1024 + 1)
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Audio must be under 10 MiB.")
-    provider = configured_provider()
+    provider = configured_voice_provider()
     if provider is None:
         raise HTTPException(status_code=503, detail={"success":False,"error_code":"VOICE_UNAVAILABLE","message":"Voice is temporarily unavailable. Continue with text."})
     try:
@@ -271,7 +271,7 @@ async def rag_search(payload: dict):
     query = str(payload.get("query", "")).strip()
     if not query:
         raise HTTPException(status_code=422, detail="query is required")
-    return await search_card_knowledge(query, configured_provider(), payload.get("card_id"), int(payload.get("limit", 5)))
+    return await search_card_knowledge(query, configured_embedding_provider(), payload.get("card_id"), int(payload.get("limit", 5)))
 
 @app.post("/api/chat")
 async def chat(payload: dict):
@@ -281,7 +281,7 @@ async def chat(payload: dict):
     lower = question.lower()
     factual = any(term in lower for term in ("lounge", "forex", "foreign exchange", "annual fee", "joining fee", "cashback rule", "redemption", "exclusion"))
     if factual:
-        knowledge = await search_card_knowledge(question, configured_provider(), payload.get("card_id"))
+        knowledge = await search_card_knowledge(question, configured_embedding_provider(), payload.get("card_id"))
         if not knowledge["grounded"]:
             return {"answer":INSUFFICIENT_EVIDENCE,"mode":"retrieval_fallback","grounded":False,"sources":[],"tools_called":["search_card_knowledge"]}
         excerpts = knowledge["chunks"][:2]
