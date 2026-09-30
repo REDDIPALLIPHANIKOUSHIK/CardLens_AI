@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from collections import defaultdict, deque
 from threading import Lock
+from datetime import datetime, timezone
 import json, logging, os, re, time, uuid
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -248,8 +249,8 @@ def _safe_messages(items: list[dict]) -> list[dict]:
         if role not in {"user","assistant"} or not isinstance(content, str):
             raise HTTPException(status_code=422, detail="Conversation messages must have a user or assistant role and text.")
         content = content.strip()
-        if not content or len(content) > 1500:
-            raise HTTPException(status_code=422, detail="Conversation messages must be between 1 and 1500 characters.")
+        if not content or len(content) > 6000:
+            raise HTTPException(status_code=422, detail="Conversation messages must be between 1 and 6000 characters.")
         safe.append({"role":role,"text":content})
     return safe
 
@@ -286,6 +287,7 @@ def update_conversation(conversation_id: str, payload: ConversationPayload, user
         if session is None:
             raise HTTPException(status_code=404, detail="Conversation not found.")
         session.language = payload.language
+        session.updated_at = datetime.now(timezone.utc)
         db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).delete()
         for item in messages:
             db.add(ConversationMessage(session_id=session.id, role=item["role"], content=item["text"]))
