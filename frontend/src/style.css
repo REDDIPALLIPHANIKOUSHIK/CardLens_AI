@@ -54,3 +54,37 @@
 
 
 .conversation-tools{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #e9efec;background:#fbfdfb}.conversation-tools button{border:0;background:transparent;color:#277354;font-size:10px;font-weight:700;cursor:pointer}.conversation-tools span{color:#85938d;font-size:9px}.conversation-list{max-height:142px;overflow:auto;padding:5px 8px;background:#f8faf9;border-bottom:1px solid #e9efec}.conversation-row{display:grid;grid-template-columns:minmax(0,1fr) 27px 27px;gap:3px;align-items:center;padding:4px;border-radius:7px}.conversation-row.selected{background:#e9f5ee}.conversation-row>button{height:27px;border:0;border-radius:6px;background:transparent;color:#71827a;cursor:pointer}.conversation-row>button:hover{background:#e5eee8;color:#1d6448}.conversation-row .conversation-open{min-width:0;text-align:left;display:grid;gap:3px;padding:4px 6px}.conversation-open b,.conversation-open small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.conversation-open b{font-size:9px;color:#34554a}.conversation-open small{font-size:8px;color:#87948e}
+
+/* Profile-backed recommendation clarity and accessible controls */
+.app-state{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f5f8f6;color:#28443a;font:500 14px 'DM Sans',sans-serif}
+.app-state section{width:min(100%,440px);padding:28px;border:1px solid #e1ebe4;border-radius:16px;background:#fff;box-shadow:0 18px 48px #183c3510}
+.app-state h1{margin:0 0 10px;font:700 22px Manrope,sans-serif}
+.app-state p{margin:0 0 20px;color:#718079;line-height:1.6}
+.profile-success{display:flex;align-items:center;gap:8px;margin:12px 0;padding:11px 13px;border:1px solid #d7eadc;border-radius:8px;background:#f0f8f2;color:#286b49;font-size:11px}
+.demo-banner{border-color:#dcebe1;background:#f2f8f3}
+.demo-banner b{color:#28543d}
+.demo-banner span{color:#657d6c}
+.recommendation-sort{display:flex;align-items:center;gap:8px;color:#718079;font-size:10px;white-space:nowrap}
+.recommendation-sort select{min-height:36px;padding:8px 30px 8px 10px;border:1px solid #dce7df;border-radius:8px;background:#fff;color:#28443a;font:600 10px 'DM Sans',sans-serif}
+.ranking-explainer{margin:-2px 0 16px;padding:12px 14px;border:1px solid #e4ece7;border-radius:9px;background:#fff;color:#607168;font-size:10px;line-height:1.65}
+.ranking-explainer summary{color:#286b49;font-weight:700;cursor:pointer}
+.ranking-explainer p{margin:8px 0 0}
+.ranking-explainer b{color:#304d3e}
+.simulation-actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.simulation-actions .primary{margin:0}
+.reset-simulation{min-height:40px;padding:9px 12px;border:1px solid #66917a;border-radius:8px;background:transparent;color:#e4f1e8;font:600 10px 'DM Sans',sans-serif;cursor:pointer}
+.reset-simulation:hover{background:#2a5a49}
+.simulation-note{display:block;margin-top:10px;color:#b5cbbd;font-size:9px;line-height:1.5}
+.sim-extra input[type=number],.sim-extra select{width:100%;min-height:38px;padding:8px 10px;border:1px solid #47715f;border-radius:7px;background:#214d40;color:#f4faf5;font:500 12px 'DM Sans',sans-serif}
+.sim-extra input[type=number]:focus,.sim-extra select:focus,.recommendation-sort select:focus{outline:3px solid #9bd4af;outline-offset:2px}
+.cards-grid .rec-card{min-width:0}
+.rec-card .value-row.light span:first-child{color:#718079}
+.rec-card .value-row.light span:last-child{font-size:9px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #5dba88;outline-offset:2px}
+@media(max-width:980px){.recommendation-sort{margin-left:auto}}
+@media(max-width:720px){.rec-head{align-items:flex-start;flex-wrap:wrap;gap:12px}.recommendation-sort{width:100%;margin:0}.recommendation-sort select{flex:1}.results-tag{margin-left:auto}.simulation-actions>*{flex:1}.reset-simulation{text-align:center}}
+.auth-card .password-field{position:relative;display:flex;align-items:center;width:100%}
+.auth-card .password-field input{padding-right:70px}
+.auth-card .password-field button{position:absolute;right:7px;min-width:52px;min-height:30px;padding:5px 8px;border:1px solid #d9e8df;border-radius:7px;background:#f1f8f3;color:#28734f;font:700 11px 'DM Sans',sans-serif;cursor:pointer}
+.auth-card .password-field button:hover{background:#e4f2e9}
+
