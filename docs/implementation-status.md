@@ -1,6 +1,6 @@
 # CardLens AI implementation status
 
-Audit performed against the repository tree and source on 30 September 2026. The latest confirmed green feature CI run (`a53cd57`) passed PostgreSQL migration/seed, pytest, frontend production build, both Docker image builds, and the Compose HTTP smoke test. Documentation-only commits after that run are rebuilding the same CI pipeline.
+Verification: the pull request's GitHub Actions runs PostgreSQL migration/seed, backend tests, the frontend production build, Docker builds, and the Compose smoke test. Check the current PR checks for the result on its latest commit.
 
 ## IMPLEMENTED
 
