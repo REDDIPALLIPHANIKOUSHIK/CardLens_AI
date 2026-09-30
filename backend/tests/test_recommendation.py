@@ -6,6 +6,7 @@ from backend.app.models import Base, CardDocument
 from backend.app.database import get_session_factory
 from datetime import date
 import asyncio
+import os
 
 class RecommendationApiTests(unittest.TestCase):
     def setUp(self):
@@ -51,6 +52,15 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/health').status_code, 200)
         self.assertEqual(self.client.get('/ready').status_code, 200)
         self.assertIn('Synthetic demo data', self.client.get('/api/cards').json()['notice'])
+
+    def test_production_requires_explicit_database_and_https_origins(self):
+        from backend.app.main import validate_runtime_configuration
+        with patch.dict(os.environ, {"APP_ENV":"production"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "DATABASE_URL, FRONTEND_ORIGINS"):
+                validate_runtime_configuration()
+        with patch.dict(os.environ, {"APP_ENV":"production","DATABASE_URL":"postgresql://db/cardlens","FRONTEND_ORIGINS":"*"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "HTTPS origins"):
+                validate_runtime_configuration()
 
     def test_readiness_returns_controlled_database_error(self):
         with patch('backend.app.main.check_database', return_value=(False, 'database_unavailable')):
