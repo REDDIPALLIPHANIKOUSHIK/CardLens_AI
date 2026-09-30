@@ -431,6 +431,21 @@ def recommend(profile: Profile, user: User | None = Depends(optional_current_use
             db.add(Recommendation(user_id=user.id, profile_snapshot=profile.model_dump(), results=result["recommendations"]))
     return result
 
+@app.get("/api/recommendations/latest")
+def latest_recommendations(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        saved_profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        if saved_profile is None:
+            return {"recommendations":[]}
+        latest = db.query(Recommendation).filter(Recommendation.user_id == user.id).order_by(Recommendation.created_at.desc()).first()
+        if latest is not None and latest.profile_snapshot == saved_profile.profile:
+            return {"recommendations":latest.results}
+        profile = Profile.model_validate(saved_profile.profile)
+        result = _rank(profile)
+        db.add(Recommendation(user_id=user.id, profile_snapshot=profile.model_dump(), results=result["recommendations"]))
+        return result
+
 @app.post("/api/simulate")
 def simulate(payload: dict, user: User | None = Depends(optional_current_user)):
     profile = Profile.model_validate(payload.get("profile", {}))
