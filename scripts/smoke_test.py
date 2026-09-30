@@ -4,11 +4,16 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
+from http.cookiejar import CookieJar
+from urllib.request import HTTPCookieProcessor, build_opener
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 API = os.getenv("CARDLENS_API_URL", "http://127.0.0.1:8000")
 WEB = os.getenv("CARDLENS_WEB_URL", "http://127.0.0.1:5173")
+opener = build_opener(HTTPCookieProcessor(CookieJar()))
+
 PROFILE = {
     "monthly_income": 70000,
     "credit_score": 760,
@@ -18,10 +23,10 @@ PROFILE = {
 }
 
 
-def request_json(url: str, payload: dict | None = None) -> dict:
+def request_json(url: str, payload: dict | None = None, method: str | None = None) -> dict:
     data = json.dumps(payload).encode() if payload is not None else None
-    request = Request(url, data=data, headers={"Content-Type": "application/json"} if data else {})
-    with urlopen(request, timeout=8) as response:
+    request = Request(url, data=data, headers={"Content-Type": "application/json"} if data else {}, method=method)
+    with opener.open(request, timeout=8) as response:
         return json.load(response)
 
 
@@ -40,8 +45,12 @@ def main() -> None:
     assert request_json(f"{API}/health")["status"] == "ok"
     assert request_json(f"{API}/ready")["status"] == "ready"
 
-    profile_response = request_json(f"{API}/api/profile", PROFILE)
-    assert profile_response["validated"] is True
+    email = f"smoke-{uuid.uuid4()}@example.test"
+    account = request_json(f"{API}/api/auth/signup", {"email":email,"password":"smoke test 2026","name":"Smoke Test"})
+    assert account["user"]["email"] == email
+    profile_response = request_json(f"{API}/api/profile", PROFILE, method="PUT")
+    assert profile_response["saved"] is True
+    assert request_json(f"{API}/api/profile")["profile"]["credit_score"] == PROFILE["credit_score"]
 
     result = request_json(f"{API}/api/recommend", PROFILE)
     cards = result["recommendations"]
@@ -73,7 +82,8 @@ def main() -> None:
     with urlopen(web_request, timeout=8) as response:
         html = response.read().decode("utf-8")
     assert response.status == 200 and "<html" in html.lower()
-    print("Compose smoke test passed: health, readiness, profile, recommendations, score/value, compare, What-If, chat fallback, empty-RAG fallback, no-match profile, and frontend.")
+    request_json(f"{API}/api/auth/logout", {}, method="POST")
+    print("Compose smoke test passed: account signup, profile persistence, health/readiness, recommendations, compare, What-If, chat fallback, RAG fallback, no-match profile, and frontend.")
     
 
 if __name__ == "__main__":
