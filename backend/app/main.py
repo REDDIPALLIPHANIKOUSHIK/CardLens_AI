@@ -89,8 +89,8 @@ class Profile(BaseModel):
     monthly_income: float | None = Field(None, ge=0, le=100_000_000)
     credit_score: int | None = Field(None, ge=300, le=900)
     age: int | None = Field(None, ge=18, le=100)
-    annual_fee_max: float | None = Field(1500, ge=0, le=1_000_000)
-    reward_preference: Literal["cashback","travel","fuel","rewards"] | None = "cashback"
+    annual_fee_max: float | None = Field(None, ge=0, le=1_000_000)
+    reward_preference: Literal["cashback","travel","fuel","rewards"] | None = None
     spending: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -807,3 +807,4 @@ def ready():
     if not available:
         raise HTTPException(status_code=503, detail={"success":False,"error_code":"DATABASE_UNAVAILABLE","message":"Persistent storage is temporarily unavailable."})
     return {"status":"ready","mode":"DEMO" if not database_url() else "POSTGRESQL","database":database}
+
