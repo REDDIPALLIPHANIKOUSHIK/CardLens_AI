@@ -137,7 +137,7 @@ For a local full-stack Vercel emulation, use `vercel dev` from the repository ro
 ## Troubleshooting
 
 - **Project does not build as multiple services:** confirm Services is selected as the Vercel project framework and that root `vercel.json` is present. Services is in beta and access/availability may vary.
-- **API returns 404:** inspect the `/api/(.*)` rewrite and ensure the service receives the original `/api/... ` path. Keep the root project linked; do not configure the frontend folder as the project root.
+- **API returns 404:** inspect the `/api/(.*)` rewrite and ensure the service receives the original `/api/...` path. Keep the root project linked; do not configure the frontend folder as the project root.
 - **FastAPI import/dependency error:** ensure the API service root is `backend/`, its entrypoint is `app.main:app`, and `backend/requirements.txt` includes the runtime dependencies. Check Vercel function logs.
 - **Production startup error:** set `APP_ENV=production`, `DATABASE_URL`, and the exact HTTPS `FRONTEND_ORIGINS`.
 - **Readiness reports database unavailable:** verify the connection URL, provider network/access rules, TLS requirements, pgvector availability, and applied migrations. Keep pool defaults small for serverless concurrency.
