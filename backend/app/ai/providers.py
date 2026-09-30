@@ -78,3 +78,19 @@ def configured_provider() -> OpenAICompatibleProvider | None:
         return None
     key = os.getenv("LLM_API_KEY", "").strip()
     return OpenAICompatibleProvider(key, os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")) if key else None
+
+def configured_embedding_provider() -> OpenAICompatibleProvider | None:
+    key = os.getenv("EMBEDDING_API_KEY", "").strip() or os.getenv("LLM_API_KEY", "").strip()
+    if not key:
+        return None
+    base = os.getenv("EMBEDDING_BASE_URL", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
+    provider = OpenAICompatibleProvider(key, base)
+    provider.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    return provider
+
+def configured_voice_provider() -> OpenAICompatibleProvider | None:
+    key = os.getenv("VOICE_API_KEY", "").strip() or os.getenv("LLM_API_KEY", "").strip()
+    if not key:
+        return None
+    base = os.getenv("VOICE_BASE_URL", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
+    return OpenAICompatibleProvider(key, base)
