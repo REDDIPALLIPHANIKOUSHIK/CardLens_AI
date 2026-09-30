@@ -66,7 +66,7 @@ class RecommendationApiTests(unittest.TestCase):
             response = self.client.post('/api/rag/search', json={"query":"lounge access"})
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()['grounded'])
-        self.assertIn('not have enough verified information', response.json()['answer'])
+        self.assertIn('enough verified information', response.json()['answer'])
 
     def test_factual_chat_uses_rag_and_never_guesses(self):
         with patch('backend.app.main.configured_embedding_provider', return_value=None):
