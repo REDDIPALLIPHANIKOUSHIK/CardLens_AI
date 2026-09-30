@@ -273,24 +273,120 @@ async def rag_search(payload: dict):
         raise HTTPException(status_code=422, detail="query is required")
     return await search_card_knowledge(query, configured_embedding_provider(), payload.get("card_id"), int(payload.get("limit", 5)))
 
+AI_TOOLS = [
+    {"type":"function","function":{"name":"get_user_profile","description":"Return the user-provided structured profile fields.","parameters":{"type":"object","properties":{},"additionalProperties":False}}},
+    {"type":"function","function":{"name":"get_recommendations","description":"Run deterministic eligibility and CardLens ranking for the supplied profile.","parameters":{"type":"object","properties":{},"additionalProperties":False}}},
+    {"type":"function","function":{"name":"get_card_details","description":"Return catalog metadata for a specific demo card. All current card terms are synthetic.","parameters":{"type":"object","properties":{"card_id":{"type":"string"}},"required":["card_id"],"additionalProperties":False}}},
+    {"type":"function","function":{"name":"compare_cards","description":"Compare the two top eligible cards using actual backend score and value calculations.","parameters":{"type":"object","properties":{},"additionalProperties":False}}},
+    {"type":"function","function":{"name":"calculate_card_value","description":"Calculate estimated value for a card using the deterministic engine.","parameters":{"type":"object","properties":{"card_id":{"type":"string"}},"required":["card_id"],"additionalProperties":False}}},
+    {"type":"function","function":{"name":"run_what_if_simulation","description":"Recompute eligibility, scores, rewards, and ranking after profile changes.","parameters":{"type":"object","properties":{"changes":{"type":"object","additionalProperties":{"type":"number"}}},"required":["changes"],"additionalProperties":False}}},
+    {"type":"function","function":{"name":"search_card_knowledge","description":"Retrieve source-linked indexed card knowledge. Empty evidence means there is no verified answer.","parameters":{"type":"object","properties":{"query":{"type":"string"},"card_id":{"type":["string","null"]}},"required":["query"],"additionalProperties":False}}},
+]
+
+async def _dispatch_assistant_tool(name: str, arguments: dict, profile: Profile):
+    ranked = _rank(profile)["recommendations"]
+    sources = []
+    if name == "get_user_profile":
+        return profile.model_dump(), sources
+    if name == "get_recommendations":
+        return ranked[:3], sources
+    if name == "compare_cards":
+        return {"cards":ranked[:2],"value_difference":abs(ranked[0]["estimated_net_annual_value"]-ranked[1]["estimated_net_annual_value"]) if len(ranked)>1 else None}, sources
+    if name == "get_card_details":
+        card = next((c for c in CARDS if c["id"] == arguments.get("card_id")), None)
+        if not card:
+            return {"error":"Unknown card id"}, sources
+        return {"card":card,"notice":"Synthetic demo catalog; not current issuer terms."}, sources
+    if name == "calculate_card_value":
+        card = next((c for c in ranked if c["id"] == arguments.get("card_id")), None)
+        return card or {"error":"Unknown or ineligible card"}, sources
+    if name == "run_what_if_simulation":
+        result = simulate({"profile":profile.model_dump(),"changes":arguments.get("changes", {})})
+        return result, sources
+    if name == "search_card_knowledge":
+        result = await search_card_knowledge(str(arguments.get("query","")),configured_embedding_provider(),arguments.get("card_id"))
+        return result, result.get("sources", [])
+    return {"error":"Unknown tool"}, sources
+
+async def _llm_tool_answer(question: str, profile: Profile, language: str):
+    provider = configured_provider()
+    if provider is None:
+        return None
+    language_name = {"en":"English","hi":"Hindi","te":"Telugu"}[language]
+    system = (
+        "You are the CardLens AI Advisor. You present and explain backend outputs; you are never the recommender. "
+        "You MUST call the appropriate tool before making profile, ranking, comparison, simulation, reward, eligibility, or card-term claims. "
+        "Never calculate or invent values. Treat demo card data as synthetic. For issuer facts use search_card_knowledge and only state retrieved evidence; if it returns no evidence, say you lack verified information. "
+        "Do not imply approval. Keep the response concise and answer in " + language_name + "."
+    )
+    messages = [{"role":"system","content":system},{"role":"user","content":question}]
+    first = await provider.chat(messages, AI_TOOLS)
+    calls = first.get("tool_calls") or []
+    if not calls:
+        return {"answer":"I couldn't verify that answer with CardLens tools. I can explain or compare the deterministic demo results.","sources":[],"tools_called":[]}
+    messages.append(first)
+    sources, used = [], []
+    for call in calls[:4]:
+        fn = call.get("function", {})
+        name = fn.get("name", "")
+        try:
+            arguments = json.loads(fn.get("arguments") or "{}")
+            if not isinstance(arguments, dict):
+                raise ValueError("Tool arguments must be an object")
+        except (ValueError, TypeError):
+            return None
+        result, found_sources = await _dispatch_assistant_tool(name, arguments, profile)
+        used.append(name)
+        sources.extend(found_sources)
+        messages.append({"role":"tool","tool_call_id":call.get("id",""),"content":json.dumps(result,ensure_ascii=False,default=str)})
+    final = await provider.chat(messages)
+    answer = final.get("content")
+    if not isinstance(answer, str) or not answer.strip():
+        return None
+    unique_sources = {item["source"]:item for item in sources}
+    return {"answer":answer.strip(),"sources":list(unique_sources.values()),"tools_called":used}
+
 @app.post("/api/chat")
 async def chat(payload: dict):
     question = str(payload.get("message", "")).strip()
     if not question:
         raise HTTPException(status_code=422, detail="Message is required")
+    language = str(payload.get("language", "en"))
+    if language not in {"en","hi","te"}:
+        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
     lower = question.lower()
     factual = any(term in lower for term in ("lounge", "forex", "foreign exchange", "annual fee", "joining fee", "cashback rule", "redemption", "exclusion"))
+    try:
+        profile = Profile.model_validate(payload.get("profile", {}))
+    except Exception:
+        if factual:
+            profile = Profile()
+        else:
+            raise HTTPException(status_code=422, detail="A valid structured profile is required for personalized answers.")
     if factual:
         knowledge = await search_card_knowledge(question, configured_embedding_provider(), payload.get("card_id"))
         if not knowledge["grounded"]:
             return {"answer":INSUFFICIENT_EVIDENCE,"mode":"retrieval_fallback","grounded":False,"sources":[],"tools_called":["search_card_knowledge"]}
-        excerpts = knowledge["chunks"][:2]
+        excerpts = knowledge["chunks"][:3]
+        provider = configured_provider()
+        if provider:
+            try:
+                system = "Answer the user's card-terms question only from the retrieved source excerpts below. If they do not answer it, say you do not have enough verified information. Do not infer or add terms. Respond in " + {"en":"English","hi":"Hindi","te":"Telugu"}[language] + "."
+                evidence = "\n".join(f"[{i+1}] {item['card_name']} | {item['source']} | verified {item['last_verified']}: {item['text']}" for i, item in enumerate(excerpts))
+                answer_message = await provider.chat([{"role":"system","content":system+"\n\n"+evidence},{"role":"user","content":question}])
+                answer = answer_message.get("content")
+                if isinstance(answer, str) and answer.strip():
+                    return {"answer":answer.strip(),"mode":"rag_llm","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
+            except Exception as exc:
+                logger.warning(json.dumps({"event":"rag_llm_fallback","error_type":type(exc).__name__}))
         answer = "Verified source excerpts:\n" + "\n".join(f"• {item['card_name']}: {item['text']}" for item in excerpts)
         return {"answer":answer,"mode":"retrieval","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
     try:
-        profile = Profile.model_validate(payload.get("profile", {}))
-    except Exception:
-        raise HTTPException(status_code=422, detail="A valid structured profile is required for personalized answers.")
+        llm_result = await _llm_tool_answer(question, profile, language)
+        if llm_result:
+            return {**llm_result,"mode":"llm_tools","grounded":True}
+    except Exception as exc:
+        logger.warning(json.dumps({"event":"llm_tool_fallback","error_type":type(exc).__name__}))
     ranked = _rank(profile)["recommendations"]
     if not ranked:
         return {"answer":"There are no eligible synthetic demo cards for the supplied profile.","mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
