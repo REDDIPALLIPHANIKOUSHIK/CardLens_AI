@@ -1,6 +1,7 @@
 import unittest
 from fastapi.testclient import TestClient
 from backend.app.main import app
+from backend.app.models import Base, CardDocument
 
 class RecommendationApiTests(unittest.TestCase):
     def setUp(self):
@@ -14,23 +15,52 @@ class RecommendationApiTests(unittest.TestCase):
     def test_recommendations_are_deterministic_and_ranked(self):
         a = self.client.post('/api/recommend', json=self.profile).json()['recommendations']
         b = self.client.post('/api/recommend', json=self.profile).json()['recommendations']
-        self.assertEqual([x['id'] for x in a], [x['id'] for x in b])
         self.assertEqual(a, b)
         self.assertEqual(a, sorted(a, key=lambda x: (-x['score'], -x['estimated_net_annual_value'], x['id'])))
 
-    def test_missing_eligibility_values_are_not_invented(self):
+    def test_score_explanation_and_confidence_are_measurable(self):
+        result = self.client.post('/api/recommend', json=self.profile).json()
+        first = result['recommendations'][0]
+        self.assertEqual(set(first['score_breakdown']), {'spending_match','reward_value','preference_match','eligibility','fee_value','benefits'})
+        self.assertTrue(0 <= first['score'] <= 100)
+        self.assertTrue(0 <= first['confidence'] <= 100)
+        self.assertTrue(first['confidence_reason'])
+        self.assertTrue(first['why'])
+        self.assertTrue(first['why_not'])
+        self.assertIn('shopping', first['category_rewards'])
+
+    def test_missing_eligibility_values_lower_completeness(self):
         result = self.client.post('/api/recommend', json={"spending":{"shopping":1000}}).json()
         self.assertTrue(result['recommendations'])
         self.assertTrue(all(x['profile_completeness'] < 100 for x in result['recommendations']))
+        self.assertIn('unknown', result['recommendations'][0]['confidence_reason'])
 
     def test_negative_spending_is_rejected(self):
         response = self.client.post('/api/recommend', json={"spending":{"fuel":-1}})
         self.assertEqual(response.status_code, 422)
 
-    def test_simulation_uses_updated_profile(self):
-        result = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"travel":15000}})
+    def test_simulation_accepts_multiple_inputs_and_returns_rank_movements(self):
+        result = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"travel":15000,"shopping":12000,"annual_fee_max":2000}})
         self.assertEqual(result.status_code, 200)
-        self.assertNotEqual(result.json()['before']['recommendations'][0]['estimated_net_annual_value'], result.json()['after']['recommendations'][0]['estimated_net_annual_value'])
+        body = result.json()
+        self.assertNotEqual(body['before']['recommendations'][0]['estimated_net_annual_value'], body['after']['recommendations'][0]['estimated_net_annual_value'])
+        self.assertIn('explanation', body)
+        self.assertIn('moved', body)
+
+    def test_simulation_rejects_unknown_fields(self):
+        result = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"rent":2000}})
+        self.assertEqual(result.status_code, 422)
+
+    def test_personalized_comparison(self):
+        ranked = self.client.post('/api/recommend', json=self.profile).json()['recommendations']
+        result = self.client.post('/api/compare', json={"profile":self.profile,"card_ids":[ranked[0]['id'],ranked[1]['id']]})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(len(result.json()['cards']), 2)
+
+    def test_models_include_required_relational_tables_and_vector(self):
+        required = {'users','user_profiles','credit_cards','card_benefits','card_documents','recommendations','recommendation_explanations','conversation_sessions','conversation_messages','simulation_history'}
+        self.assertTrue(required.issubset(set(Base.metadata.tables)))
+        self.assertIn('embedding', CardDocument.__table__.columns)
 
 if __name__ == '__main__':
     unittest.main()
