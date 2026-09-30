@@ -79,7 +79,7 @@ On Windows PowerShell, copy the environment file with `Copy-Item .env.example .e
 
 ```bash
 pip install -r backend/requirements-dev.txt
-pytest -q backend/tests
+python -m pytest -q backend/tests
 cd frontend && npm install && npm run build
 cd ..
 docker build -f backend/Dockerfile -t cardlens-api:local .
