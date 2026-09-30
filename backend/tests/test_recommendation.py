@@ -12,6 +12,40 @@ class RecommendationApiTests(unittest.TestCase):
         self.client = TestClient(app)
         self.profile = {"monthly_income":70000,"credit_score":760,"annual_fee_max":1500,"reward_preference":"cashback","spending":{"shopping":15000,"dining":8000,"fuel":4000,"travel":5000}}
 
+    def test_profile_validation_and_card_detail_routes(self):
+        response = self.client.post('/api/profile', json=self.profile)
+        self.assertTrue(response.json()['validated'])
+        self.assertEqual(response.json()['storage'], 'session_only')
+        card = self.client.get('/api/cards/demo-travel')
+        self.assertEqual(card.status_code, 200)
+        self.assertIn('Synthetic demo data', card.json()['notice'])
+        self.assertEqual(self.client.get('/api/cards/not-real').status_code, 404)
+
+    def test_natural_language_profile_extraction_returns_reviewable_values(self):
+        text = "I earn around ₹70,000 a month. I spend ₹15,000 online, ₹8,000 on dining, ₹4,000 on fuel and ₹5,000 on travel. My credit score is 760 and I prefer cashback."
+        response = self.client.post('/api/profile/extract', json={"text":text})
+        self.assertEqual(response.status_code, 200)
+        extracted = response.json()['extracted_fields']
+        self.assertEqual(extracted['monthly_income'], 70000)
+        self.assertEqual(extracted['credit_score'], 760)
+        self.assertEqual(extracted['reward_preference'], 'cashback')
+        self.assertEqual(extracted['spending']['shopping'], 15000)
+        self.assertTrue(response.json()['requires_confirmation'])
+
+    def test_invalid_llm_extraction_retries_then_uses_explicit_local_values(self):
+        class BadProvider:
+            calls = 0
+            async def chat(self, messages, tools=None):
+                self.calls += 1
+                return {"content":"not json"}
+        provider = BadProvider()
+        with patch('backend.app.main.configured_provider', return_value=provider):
+            response = self.client.post('/api/profile/extract', json={"text":"My monthly income is ₹40,000 and I spend ₹3,000 on fuel."})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['method'], 'deterministic')
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(response.json()['extracted_fields']['spending']['fuel'], 3000)
+
     def test_health_and_demo_catalog_notice(self):
         self.assertEqual(self.client.get('/api/health').status_code, 200)
         self.assertIn('Synthetic demo data', self.client.get('/api/cards').json()['notice'])
