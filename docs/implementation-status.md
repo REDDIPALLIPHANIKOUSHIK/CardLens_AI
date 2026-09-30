@@ -1,42 +1,42 @@
 # CardLens AI implementation status
 
-Audit performed against the repository tree and source on 30 September 2026. The pre-change GitHub Actions run passed both the backend unittest suite and frontend production build.
+Audit performed against the repository tree and source on 30 September 2026. The last confirmed green CI run at the start of this continuation passed backend tests and the frontend production build. This document reflects the subsequent changes; check the latest Actions run for final verification.
 
 ## IMPLEMENTED
 
-- React + TypeScript + Vite dashboard with responsive styling.
-- Editable in-memory demo profile with income, score, fee preference, reward preference, and six spending categories.
-- FastAPI with Pydantic profile validation and health/readiness endpoints.
-- Synthetic card catalog explicitly labeled as demo data.
-- Deterministic eligibility filtering and ranking; the LLM does not make decisions.
-- Estimated rewards and net annual value from monthly spend and demo reward rates.
-- Deterministic travel what-if endpoint and UI.
-- Top-two personalized comparison API and UI.
-- Basic recommendation reasons and limitations.
-- Initial Docker API image, compose file, architecture notes, backend tests, and GitHub Actions backend/frontend CI.
-- Works without AI credentials.
+- Existing React + TypeScript + Vite responsive dashboard and editable in-memory profile retained.
+- FastAPI validation, deterministic eligibility filtering, configurable weighted CardLens Score with six API breakdown factors, illustrative per-category reward estimate, deterministic ranking, generated why/why-not explanations, profile completeness, and confidence estimate with explanation.
+- Top-two personalized compare API/UI.
+- What-If accepts category spending, income, credit score, and annual-fee preference changes; responds with before/after rankings, moved cards, and deterministic explanation. UI now exposes multiple spend sliders and highlights movements.
+- SQLAlchemy schema for requested user, profile, card, benefit, card document, recommendation, explanation, conversation, and simulation tables; Alembic initial migration enables pgvector.
+- Idempotent demo-card seed script. Docker Compose has PostgreSQL/pgvector, API, and frontend services. CI runs migration and seed against PostgreSQL.
+- pgvector retrieval endpoint and JSONL ingestion script with source/version/verification metadata. Empty retrieval returns an explicit insufficient-evidence answer.
+- Replaceable LLM, embedding, STT, and TTS protocols and optional OpenAI-compatible adapter. LLM can call deterministic profile/recommendation/card/compare/value/simulation/RAG tools. Without credentials, deterministic fallbacks remain.
+- Optional voice transcription and speech endpoints with bounded uploads, supported language codes (English/Hindi/Telugu), and friendly failure response.
+- Advisor panel with text chat, bounded client-side message context, optional microphone input/speech output, language selector for voice, and source links.
+- API request IDs, per-IP in-process rate windows, redacted structured request metadata logs, readiness checks, and environment-based CORS.
+- Backend tests cover scoring, explanations, compare, What-If, LLM tool routing, voice fallback, empty RAG, pgvector retrieval and model schema. CI builds the frontend and runs database migration/seed/tests.
+- README, architecture, deployment, testing, implementation status, and interview notes.
 
 ## PARTIALLY IMPLEMENTED
 
-- CardLens Score: backend score exists; breakdown and score methodology need to be exposed and explained to the user.
-- Reward optimizer: uncapped illustrative reward rates and annual fees only; no validated caps, exclusions, redemption rules, or conditional benefits.
-- Explainability: basic why strings exist, but comparisons against alternatives and rank-specific why-not reasons need improving.
-- What-if: travel-only UI change; API can merge category changes, but income/fee changes and rank movement explanation are not surfaced.
-- Profile insight: derives the largest entered category and reward preference; no historical profile or calibrated financial analysis.
-- Confidence: basic profile-completeness signal exists; a useful confidence measure and explanation are still needed.
-- Chat: /api/chat is a deterministic safe fallback response, not a contextual tool-using assistant.
-- Deployment: API Docker setup exists; database-backed production configuration, frontend deployment config, and end-to-end container verification remain.
+- PostgreSQL tables, migration, and seeding work; app profiles/recommendations/conversations/simulation history are not yet durably connected to authenticated user sessions. The ranking still uses the in-memory card constants as its authoritative demo catalog.
+- RAG ingestion/retrieval path is implemented and tested with a fake embedding vector in CI. No issuer-verified documents are bundled, and real external embedding/LLM API calls are not exercised in CI.
+- LLM adapter/tool flow is implemented and tool routing is tested with a fake provider. Live model quality, timeouts against a provider, retry behavior, citations rendered by a live model, and Hindi/Telugu answer quality are not verified.
+- Voice API and UI paths exist. Live STT/TTS, real device/browser permission behavior, and multilingual speech accuracy are not verified.
+- Confidence is a deterministic heuristic from profile completeness and score separation; it is not calibrated against user outcomes.
+- Rate limiting is in-process by remote address and must be replaced by a shared store before multi-instance deployment.
+- Error fallback and request metadata are implemented; production alerting/metrics, distributed caching, and Docker image smoke testing remain.
+- Reward optimizer uses illustrative category rates minus annual fee; caps, exclusions, joining fees, redemption, and conditional benefits are absent.
+- Model evaluation is not available because no labeled recommendation dataset exists; no ML performance claims are made.
 
 ## MISSING
 
-- PostgreSQL persistence, SQLAlchemy models, Alembic migrations, and reproducible DB seed.
-- pgvector extension, embeddings, issuer-document ingestion, retrieval, citation metadata, and RAG-grounded factual answers.
-- Replaceable LLM, embedding, speech-to-text, and text-to-speech provider interfaces.
-- Real tool-calling AI Advisor with session memory.
-- Voice capture/transcription/speech output and English/Hindi/Telugu language selection.
-- Persistent users/profiles/recommendations/conversations/simulations.
-- Per-route rate limiting, bounded external-service timeouts/retries, request IDs, structured redacted logs, and production error envelopes.
-- Expanded tests for score components, why-not, confidence, comparison edge cases, RAG, chatbot tools, voice fallback, DB migrations/failure, and multilingual behavior.
-- Interview-preparation and full deployment/testing documentation.
-- Real credit-card dataset: no issuer-verified production offers are included; the available catalog must remain labeled synthetic.
-- Labeled recommendation outcomes and model evaluation: no ML accuracy or recommendation quality claims are supported.
+- Authentication, profile consent and retention controls, secure user self-service, and complete persistence flows.
+- Issuer-verified real card catalog with change monitoring and a production document set.
+- Persistent conversation read/write integration and true cross-session memory.
+- Multilingual Advisor output validated end-to-end in English, Hindi, and Telugu; browser microphone/speaker accessibility testing.
+- Shared/distributed rate limiting and cache infrastructure, production observability/alerting, CI lint/type-check rules, and verified production deployment.
+- Wider frontend accessibility/interaction tests and real-device end-to-end demo testing.
+
+Synthetic catalog terms and example source URLs must not be presented as real financial information.
