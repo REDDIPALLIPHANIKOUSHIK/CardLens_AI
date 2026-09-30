@@ -1,6 +1,6 @@
 # CardLens AI implementation status
 
-Audit performed against the repository tree and source on 30 September 2026. The latest confirmed green feature CI run (`4283488`) passed PostgreSQL migration/seed, pytest, frontend production build, both Docker image builds, and the Compose HTTP smoke test. Documentation-only commits after that run are rebuilding the same CI pipeline.
+Audit performed against the repository tree and source on 30 September 2026. The latest confirmed green feature CI run (`a53cd57`) passed PostgreSQL migration/seed, pytest, frontend production build, both Docker image builds, and the Compose HTTP smoke test. Documentation-only commits after that run are rebuilding the same CI pipeline.
 
 ## IMPLEMENTED
 
@@ -15,7 +15,7 @@ Audit performed against the repository tree and source on 30 September 2026. The
 - Optional voice transcription and speech endpoints with bounded uploads, supported language codes (English/Hindi/Telugu), and friendly failure response.
 - Advisor panel with text chat, bounded client-side message context, optional microphone input/speech output, language selector for voice, and source links.
 - Optional natural-language profile extraction with validated AI JSON, one retry, deterministic local fallback, unknown fields left unset, and editable user review before recommendations.
-- API request IDs, per-IP in-process rate windows, redacted structured request metadata logs, readiness checks, and environment-based CORS.
+- API request IDs, per-IP in-process rate windows, redacted structured request metadata logs, readiness checks, and environment-based CORS. Production mode fails fast without DATABASE_URL and explicit HTTPS FRONTEND_ORIGINS, and rejects wildcard CORS.
 - Backend tests cover scoring, explanations, compare, What-If, LLM tool routing, voice fallback, empty RAG, pgvector retrieval and model schema. CI builds the frontend and runs database migration/seed/tests.
 - README, architecture, deployment, testing, implementation status, and interview notes.
 
