@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .database import get_session_factory
-from .models import AuthSession, User
+from .models import AuthSession, ComparisonHistory, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 COOKIE_NAME = "cardlens_session"
@@ -27,6 +27,13 @@ class SignupInput(BaseModel):
 
 class LoginInput(BaseModel):
     email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=128)
+
+class PasswordChangeInput(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+class DeleteAccountInput(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 def _factory():
@@ -56,12 +63,13 @@ def _verify_password(password: str, encoded: str | None) -> bool:
     except (ValueError, TypeError):
         return False
 
-def _new_session(db, user: User, response: Response) -> None:
+def _new_session(db, user: User, response: Response, *, commit: bool = True) -> None:
     raw = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
     now = datetime.now(timezone.utc)
     db.add(AuthSession(token_hash=token_hash, user_id=user.id, expires_at=now + timedelta(days=SESSION_DAYS)))
-    db.commit()
+    if commit:
+        db.commit()
     response.set_cookie(
         COOKIE_NAME, raw, max_age=SESSION_DAYS * 24 * 60 * 60,
         httponly=True, secure=os.getenv("APP_ENV", "development").lower() == "production",
@@ -124,6 +132,38 @@ def login(payload: LoginInput, response: Response):
 @router.get("/me")
 def me(user: User = Depends(current_user)):
     return {"user":_public_user(user)}
+
+@router.post("/password")
+def change_password(payload: PasswordChangeInput, response: Response, user: User = Depends(current_user)):
+    if not any(c.isalpha() for c in payload.new_password) or not any(c.isdigit() for c in payload.new_password):
+        raise HTTPException(status_code=422, detail="Use a password with at least 10 characters, including a letter and a number.")
+    factory = _factory()
+    with factory.begin() as db:
+        account = db.get(User, user.id)
+        if account is None or not _verify_password(payload.current_password, account.password_hash):
+            raise HTTPException(status_code=403, detail={"code":"CURRENT_PASSWORD_INVALID","message":"Current password is incorrect."})
+        account.password_hash = _hash_password(payload.new_password)
+        db.query(AuthSession).filter(AuthSession.user_id == account.id).delete()
+        _new_session(db, account, response, commit=False)
+    return {"ok":True,"message":"Password updated. Other sessions have been signed out."}
+
+@router.delete("/account")
+def delete_account(payload: DeleteAccountInput, response: Response, user: User = Depends(current_user)):
+    factory = _factory()
+    with factory.begin() as db:
+        account = db.get(User, user.id)
+        if account is None or not _verify_password(payload.password, account.password_hash):
+            raise HTTPException(status_code=403, detail={"code":"CURRENT_PASSWORD_INVALID","message":"Password is incorrect."})
+        # Explicitly remove snapshots and messages that use SET NULL so deletion removes the user's data.
+        db.query(Recommendation).filter(Recommendation.user_id == account.id).delete()
+        db.query(SimulationHistory).filter(SimulationHistory.user_id == account.id).delete()
+        db.query(ComparisonHistory).filter(ComparisonHistory.user_id == account.id).delete()
+        db.query(ConversationSession).filter(ConversationSession.user_id == account.id).delete()
+        db.query(UserFavorite).filter(UserFavorite.user_id == account.id).delete()
+        db.query(UserProfile).filter(UserProfile.user_id == account.id).delete()
+        db.delete(account)
+    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, secure=os.getenv("APP_ENV", "development").lower() == "production", samesite="strict")
+    return {"ok":True}
 
 @router.post("/logout")
 def logout(request: Request, response: Response):
