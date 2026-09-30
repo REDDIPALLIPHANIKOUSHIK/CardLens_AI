@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
 from .database import check_database, database_url, get_session_factory
 from .auth import current_user, optional_current_user, router as auth_router
-from .models import ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserProfile
+from .models import ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile
 from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
@@ -216,6 +216,32 @@ def _account_db():
     if factory is None:
         raise HTTPException(status_code=503, detail={"code":"ACCOUNT_STORAGE_UNAVAILABLE","message":"Account storage is temporarily unavailable."})
     return factory
+
+@app.get("/api/favorites")
+def list_favorites(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        favorites = db.query(UserFavorite).filter(UserFavorite.user_id == user.id).order_by(UserFavorite.created_at.desc()).all()
+        catalog = {card["id"]:card for card in CARDS}
+        return {"items":[{"card_id":item.card_id,"saved_at":item.created_at.isoformat() if item.created_at else None,"card":catalog.get(item.card_id)} for item in favorites]}
+
+@app.post("/api/favorites/{card_id}", status_code=201)
+def save_favorite(card_id: str, user: User = Depends(current_user)):
+    if not any(card["id"] == card_id for card in CARDS):
+        raise HTTPException(status_code=404, detail="Card not found.")
+    factory = _account_db()
+    with factory.begin() as db:
+        existing = db.query(UserFavorite).filter(UserFavorite.user_id == user.id, UserFavorite.card_id == card_id).first()
+        if existing is None:
+            db.add(UserFavorite(user_id=user.id, card_id=card_id))
+    return {"saved":True,"card_id":card_id}
+
+@app.delete("/api/favorites/{card_id}")
+def remove_favorite(card_id: str, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        db.query(UserFavorite).filter(UserFavorite.user_id == user.id, UserFavorite.card_id == card_id).delete()
+    return {"saved":False,"card_id":card_id}
 
 @app.get("/api/profile")
 def load_profile(user: User = Depends(current_user)):
