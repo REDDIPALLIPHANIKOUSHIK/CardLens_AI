@@ -8,6 +8,7 @@ CI runs on pushes and pull requests:
 - PostgreSQL/pgvector migrations and seed: `alembic -c backend/alembic.ini upgrade head`, then `python scripts/seed_database.py`
 - Frontend TypeScript check and production build: `cd frontend && npm install && npm run build`
 - Production Docker image builds for API and Nginx-served frontend.
+- PostgreSQL/pgvector-backed Compose smoke test for readiness, profile, recommendations, score/value, comparison, What-If, deterministic chatbot fallback, empty-RAG fallback, no-match profile, and frontend HTTP response.
 
 The backend suite covers deterministic recommendations, score/explanations, compare, What-If, profile validation/extraction, chat tools and fallback, RAG empty/retrieval behavior, database readiness failure, and relational schema. CI PostgreSQL retrieval tests use a fake embedding vector, so they need no paid AI key.
 
