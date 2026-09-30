@@ -56,9 +56,74 @@ def _rank(profile: Profile):
         fee_fit = 100 if c["annual_fee"] <= profile.annual_fee_max else max(0, 100 - (c["annual_fee"]-profile.annual_fee_max)/20)
         eligibility = 85 if profile.monthly_income is not None and profile.credit_score is not None else 60
         benefits = 60 if c["lounge_access"] else 40
-        score = round(WEIGHTS["spending_match"]*match + WEIGHTS["reward_value"]*reward_score + WEIGHTS["preference_match"]*preference + WEIGHTS["eligibility"]*eligibility + WEIGHTS["fee_value"]*fee_fit + WEIGHTS["benefits"]*benefits)
-        rows.append({**c,"score":score,"profile_completeness":round(100*min(1, (len(profile.spending)+int(profile.monthly_income is not None)+int(profile.credit_score is not None))/7)),"estimated_annual_rewards":round(gross),"estimated_net_annual_value":round(net),"why":[f"Estimated net value ₹{round(net):,} from the spending you entered",f"{c['reward_type'].title()} reward style"],"limitations":["Demo reward rates; issuer caps and exclusions are not modeled","Eligibility is indicative and does not guarantee approval"]})
+        score_breakdown = {
+            "spending_match": round(match),
+            "reward_value": round(reward_score),
+            "preference_match": preference,
+            "eligibility": eligibility,
+            "fee_value": round(fee_fit),
+            "benefits": benefits,
+        }
+        category_rewards = {
+            k: round(profile.spending.get(k, 0) * 12 * rate)
+            for k, rate in c["rates"].items() if profile.spending.get(k, 0) > 0
+        }
+        top_spend_categories = sorted(
+            (k for k, amount in profile.spending.items() if amount > 0),
+            key=lambda k: (-profile.spending[k], k),
+        )[:2]
+        why = [
+            f"{k.title()} earns an illustrative {c['rates'][k] * 100:g}% demo reward rate"
+            for k in top_spend_categories
+        ]
+        why.append("Annual fee is within your stated preference" if c["annual_fee"] <= profile.annual_fee_max else "Fee preference lowers this card's fit")
+        why.append(f"Estimated net annual value ₹{round(net):,} from your entered spending")
+        eligibility_known = int(profile.monthly_income is not None) + int(profile.credit_score is not None)
+        completeness = round(100 * (0.65 * min(1, len(profile.spending) / len(CATEGORIES)) + 0.35 * eligibility_known / 2))
+        rows.append({
+            **c,
+            "score": score,
+            "score_breakdown": score_breakdown,
+            "profile_completeness": completeness,
+            "confidence": 0,
+            "confidence_reason": "",
+            "category_rewards": category_rewards,
+            "estimated_annual_rewards": round(gross),
+            "estimated_net_annual_value": round(net),
+            "why": why,
+            "why_not": [],
+            "limitations": ["Illustrative demo reward rates; issuer caps, exclusions, and redemption terms are not modeled", "Eligibility is indicative and does not guarantee approval"],
+        })
     rows.sort(key=lambda r:(-r["score"],-r["estimated_net_annual_value"],r["id"]))
+    if rows:
+        leader = rows[0]
+        gap = leader["score"] - rows[1]["score"] if len(rows) > 1 else 20
+        separation = min(100, round(max(0, gap) / 20 * 100))
+        for row in rows:
+            row_gap = leader["score"] - row["score"]
+            confidence = round(0.7 * row["profile_completeness"] + 0.3 * separation)
+            row["confidence"] = max(0, min(100, confidence))
+            missing = len(CATEGORIES) - len(profile.spending)
+            unknown_eligibility = []
+            if profile.monthly_income is None:
+                unknown_eligibility.append("income")
+            if profile.credit_score is None:
+                unknown_eligibility.append("credit score")
+            if missing:
+                row["confidence_reason"] = f"Moderate: {missing} spending categories and {', '.join(unknown_eligibility) or 'no eligibility fields'} are unknown."
+            elif gap < 8:
+                row["confidence_reason"] = "Moderate: the leading cards have similar suitability scores."
+            else:
+                row["confidence_reason"] = "Based on the profile fields supplied and separation from the next-ranked card."
+            if row["id"] == leader["id"]:
+                row["why_not"] = [f"{other['name']} may suit a different profile; its estimated net value is ₹{other['estimated_net_annual_value']:,}." for other in rows[1:2]]
+            else:
+                reasons = [f"Ranked {row_gap} CardLens Score points below {leader['name']}."]
+                if row["estimated_net_annual_value"] < leader["estimated_net_annual_value"]:
+                    reasons.append(f"Estimated net value is ₹{leader['estimated_net_annual_value'] - row['estimated_net_annual_value']:,} lower for the entered spending.")
+                if row["annual_fee"] > leader["annual_fee"]:
+                    reasons.append(f"Annual fee is ₹{row['annual_fee'] - leader['annual_fee']:,} higher.")
+                row["why_not"] = reasons
     return {"recommendations":rows,"excluded":excluded,"message":None if rows else "We couldn't find a strong match based on your current profile."}
 
 @app.get("/api/health")
