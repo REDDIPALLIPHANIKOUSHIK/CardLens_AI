@@ -317,7 +317,21 @@ def list_conversations(user: User = Depends(current_user)):
     factory = _account_db()
     with factory() as db:
         sessions = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).limit(50).all()
-        return {"items":[{**_conversation_dict(session, db), "messages":_conversation_dict(session, db)["messages"][-1:]} for session in sessions]}
+        items = []
+        for session in sessions:
+            conversation = _conversation_dict(session, db)
+            conversation["messages"] = conversation["messages"][-1:]
+            items.append(conversation)
+        return {"items":items}
+
+@app.get("/api/conversations/{conversation_id}")
+def get_conversation(conversation_id: str, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        return {"conversation":_conversation_dict(session, db)}
 
 @app.patch("/api/conversations/{conversation_id}")
 def rename_conversation(conversation_id: str, payload: ConversationRename, user: User = Depends(current_user)):
