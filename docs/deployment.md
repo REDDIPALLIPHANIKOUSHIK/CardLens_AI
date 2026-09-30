@@ -16,7 +16,7 @@ Copy the example environment file and edit it:
 cp .env.example .env
 ```
 
-On PowerShell, use `Copy-Item .env.example .env`. `POSTGRES_PASSWORD=cardlens-dev-only` is only a local demo default; replace it before exposing the stack. Configure `FRONTEND_ORIGINS` with the exact frontend origin(s), and set `VITE_API_BASE_URL` to the API base URL without a trailing slash. The frontend value is baked into its static build, so rebuild after changing it. Optional `LLM_API_KEY`, `EMBEDDING_API_KEY`, and `VOICE_API_KEY` enable the advisor, RAG embeddings, and voice services; blank keys disable those features gracefully.
+On PowerShell, use `Copy-Item .env.example .env`. `POSTGRES_PASSWORD=cardlens-dev-only` is only a local demo default; replace it before exposing the stack. Configure `FRONTEND_ORIGINS` with the exact frontend origin(s), and set `VITE_API_BASE_URL` to the API base URL without a trailing slash. For a production API process, set `APP_ENV=production`, provide `DATABASE_URL`, and use explicit HTTPS frontend origins; the API refuses production startup with missing database/CORS settings or wildcard/non-HTTPS CORS origins. The frontend value is baked into its static build, so rebuild after changing it. Optional `LLM_API_KEY`, `EMBEDDING_API_KEY`, and `VOICE_API_KEY` enable the advisor, RAG embeddings, and voice services; blank keys disable those features gracefully.
 
 ## Build, migrate, seed, start
 
