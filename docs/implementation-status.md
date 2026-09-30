@@ -1,6 +1,6 @@
 # CardLens AI implementation status
 
-Audit performed against the repository tree and source on 30 September 2026. The latest confirmed green CI run (`fde0223`) passed PostgreSQL migration/seed, backend tests, frontend production build, and both Docker image builds.
+Audit performed against the repository tree and source on 30 September 2026. The latest confirmed green feature CI run (`4283488`) passed PostgreSQL migration/seed, pytest, frontend production build, both Docker image builds, and the Compose HTTP smoke test. Documentation-only commits after that run are rebuilding the same CI pipeline.
 
 ## IMPLEMENTED
 
@@ -27,7 +27,7 @@ Audit performed against the repository tree and source on 30 September 2026. The
 - Voice API and UI paths exist. Live STT/TTS, real device/browser permission behavior, and multilingual speech accuracy are not verified.
 - Confidence is a deterministic heuristic from profile completeness and score separation; it is not calibrated against user outcomes.
 - Rate limiting is in-process by remote address and must be replaced by a shared store before multi-instance deployment.
-- Error fallback and request metadata are implemented; production alerting/metrics, distributed caching, and Docker image smoke testing remain.
+- Error fallback and request metadata are implemented; the production-like Compose demo now passes CI smoke checks. Production alerting/metrics and distributed caching remain.
 - Reward optimizer uses illustrative category rates minus annual fee; caps, exclusions, joining fees, redemption, and conditional benefits are absent.
 - Model evaluation is not available because no labeled recommendation dataset exists; no ML performance claims are made.
 
@@ -39,5 +39,6 @@ Audit performed against the repository tree and source on 30 September 2026. The
 - Multilingual Advisor output validated end-to-end in English, Hindi, and Telugu; browser microphone/speaker accessibility testing.
 - Shared/distributed rate limiting and cache infrastructure, production observability/alerting, CI lint/type-check rules, and verified production deployment.
 - Wider frontend accessibility/interaction tests and real-device end-to-end demo testing.
+- External deployment to a managed host/database has not been performed or verified.
 
 Synthetic catalog terms and example source URLs must not be presented as real financial information.
