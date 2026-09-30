@@ -111,6 +111,15 @@ class ConversationMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+class ComparisonHistory(Base):
+    __tablename__ = "comparison_history"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    profile_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    card_ids: Mapped[list] = mapped_column(JSON, nullable=False)
+    results: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
 class SimulationHistory(Base):
     __tablename__ = "simulation_history"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
