@@ -203,7 +203,7 @@ def simulate(payload: dict):
     before_positions = {r["id"]: i + 1 for i, r in enumerate(before["recommendations"])}
     after_positions = {r["id"]: i + 1 for i, r in enumerate(after["recommendations"])}
     moved = [
-        {"card_id": card_id, "from": before_positions.get(card_id), "to": after_positions.get(card_id)}
+        {"card_id": card_id, "card_name": next((r["name"] for r in before["recommendations"] + after["recommendations"] if r["id"] == card_id), card_id), "from": before_positions.get(card_id), "to": after_positions.get(card_id)}
         for card_id in sorted(set(before_positions) | set(after_positions))
         if before_positions.get(card_id) != after_positions.get(card_id)
     ]
