@@ -1,0 +1,77 @@
+name: Migrate production database
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type MIGRATE to confirm applying pending migrations to production
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cardlens-production-database-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply production Alembic migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Require main branch and explicit confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run this workflow from the main branch."
+            exit 1
+          fi
+          if [[ "$CONFIRMATION" != "MIGRATE" ]]; then
+            echo "::error::Confirmation must be exactly MIGRATE."
+            exit 1
+          fi
+          echo "Production migration request confirmed for main."
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Verify production database secret is configured
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "::error::The repository secret DATABASE_URL is missing or empty."
+            exit 1
+          fi
+          echo "DATABASE_URL is configured."
+
+      - name: Apply migrations through Alembic head
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m alembic -c backend/alembic.ini upgrade head
+
+      - name: Report migration success
+        if: success()
+        run: |
+          echo "## Production database migration succeeded" >> "$GITHUB_STEP_SUMMARY"
+          echo "Alembic upgrade head completed successfully." >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Production database migrations completed successfully."
+
+      - name: Report migration failure
+        if: failure()
+        run: |
+          echo "## Production database migration failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Review the failed step above. The database migration did not complete successfully." >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Production database migration did not complete successfully. Review the preceding failed step."
