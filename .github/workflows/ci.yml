@@ -26,10 +26,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r backend/requirements.txt
+      - run: pip install -r backend/requirements-dev.txt
       - run: alembic -c backend/alembic.ini upgrade head
       - run: python scripts/seed_database.py
-      - run: python -m unittest discover -s backend/tests -v
+      - run: pytest -q backend/tests
   frontend:
     runs-on: ubuntu-latest
     steps:
