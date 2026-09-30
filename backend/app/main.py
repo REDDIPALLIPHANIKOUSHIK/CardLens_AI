@@ -220,16 +220,18 @@ def _deterministic_profile_extract(text: str) -> dict:
         "utilities":r"(?:utilities|utility bills?)",
     }
     spending = {}
+    # Prefer amounts explicitly followed by a category, such as "₹8,000 on dining".
     for key, term in categories.items():
-        patterns = [
-            r"(?:" + term + r")[^0-9]{0,30}" + amount,
-            amount + r"[^0-9]{0,20}(?:" + term + r")",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, text, re.I)
-            if match:
-                spending[key] = float(match.group(1).replace(",", ""))
-                break
+        match = re.search(amount + r"[^0-9]{0,15}(?:" + term + r")\\b", text, re.I)
+        if match:
+            spending[key] = float(match.group(1).replace(",", ""))
+    # Then accept a category before its amount, without overriding a clearer postfix match.
+    for key, term in categories.items():
+        if key in spending:
+            continue
+        match = re.search(r"(?:" + term + r")[^0-9]{0,24}" + amount, text, re.I)
+        if match:
+            spending[key] = float(match.group(1).replace(",", ""))
     if spending:
         values["spending"] = spending
     return values
