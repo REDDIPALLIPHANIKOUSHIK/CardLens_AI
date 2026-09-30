@@ -97,6 +97,7 @@ def _rank(profile: Profile):
         fee_fit = 100 if c["annual_fee"] <= profile.annual_fee_max else max(0, 100 - (c["annual_fee"]-profile.annual_fee_max)/20)
         eligibility = 85 if profile.monthly_income is not None and profile.credit_score is not None else 60
         benefits = 60 if c["lounge_access"] else 40
+        score = round(WEIGHTS["spending_match"]*match + WEIGHTS["reward_value"]*reward_score + WEIGHTS["preference_match"]*preference + WEIGHTS["eligibility"]*eligibility + WEIGHTS["fee_value"]*fee_fit + WEIGHTS["benefits"]*benefits)
         score_breakdown = {
             "spending_match": round(match),
             "reward_value": round(reward_score),
