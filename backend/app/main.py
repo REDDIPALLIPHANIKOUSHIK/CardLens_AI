@@ -303,7 +303,57 @@ def _safe_messages(items: list[dict]) -> list[dict]:
 
 def _conversation_dict(session, db):
     messages = db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).order_by(ConversationMessage.created_at.asc()).all()
-    return {"id":session.id,"language":session.language,"messages":[{"role":m.role,"text":m.content} for m in messages]}
+    title = (session.context or {}).get("title")
+    if not title:
+        first = next((m.content for m in messages if m.role == "user"), "")
+        title = first[:52] + ("…" if len(first) > 52 else "") if first else "New conversation"
+    return {"id":session.id,"title":title,"language":session.language,"messages":[{"role":m.role,"text":m.content} for m in messages]}
+
+class ConversationRename(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+
+@app.get("/api/conversations")
+def list_conversations(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        sessions = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).limit(50).all()
+        return {"items":[{**_conversation_dict(session, db), "messages":_conversation_dict(session, db)["messages"][-1:]} for session in sessions]}
+
+@app.patch("/api/conversations/{conversation_id}")
+def rename_conversation(conversation_id: str, payload: ConversationRename, user: User = Depends(current_user)):
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Conversation title cannot be empty.")
+    factory = _account_db()
+    with factory.begin() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        session.context = {**(session.context or {}), "title":title}
+        session.updated_at = datetime.now(timezone.utc)
+        return {"conversation":_conversation_dict(session, db)}
+
+@app.delete("/api/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).delete()
+        db.delete(session)
+    return {"deleted":True}
+
+@app.delete("/api/conversations")
+def clear_conversations(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        sessions = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).all()
+        session_ids = [session.id for session in sessions]
+        if session_ids:
+            db.query(ConversationMessage).filter(ConversationMessage.session_id.in_(session_ids)).delete(synchronize_session=False)
+            db.query(ConversationSession).filter(ConversationSession.id.in_(session_ids)).delete(synchronize_session=False)
+    return {"deleted":len(session_ids)}
 
 @app.get("/api/conversations/latest")
 def latest_conversation(user: User = Depends(current_user)):
