@@ -9,9 +9,10 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
+from sqlalchemy.exc import IntegrityError
 from .database import check_database, database_url, get_session_factory
 from .auth import current_user, optional_current_user, router as auth_router
-from .models import ComparisonHistory, ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile, UserSettings
+from .models import ComparisonHistory, ConversationMessage, ConversationSession, CreditCard, Recommendation, SimulationHistory, User, UserFavorite, UserProfile, UserSettings
 from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
@@ -248,13 +249,35 @@ def list_favorites(user: User = Depends(current_user)):
 
 @app.post("/api/favorites/{card_id}", status_code=201)
 def save_favorite(card_id: str, user: User = Depends(current_user)):
-    if not any(card["id"] == card_id for card in CARDS):
+    card = next((item for item in CARDS if item["id"] == card_id), None)
+    if card is None:
         raise HTTPException(status_code=404, detail="Card not found.")
     factory = _account_db()
     with factory.begin() as db:
+        if db.get(CreditCard, card_id) is None:
+            try:
+                with db.begin_nested():
+                    db.add(CreditCard(
+                        id=card_id, name=card["name"], issuer=card["issuer"],
+                        network=card["network"], annual_fee=card["annual_fee"],
+                        minimum_income=card.get("minimum_income"),
+                        minimum_credit_score=card.get("minimum_credit_score"),
+                        reward_type=card["reward_type"], source_url=card.get("source_url", ""),
+                        status="demo",
+                    ))
+                    db.flush()
+            except IntegrityError:
+                # Another request inserted this catalog card concurrently.
+                pass
         existing = db.query(UserFavorite).filter(UserFavorite.user_id == user.id, UserFavorite.card_id == card_id).first()
         if existing is None:
-            db.add(UserFavorite(user_id=user.id, card_id=card_id))
+            try:
+                with db.begin_nested():
+                    db.add(UserFavorite(user_id=user.id, card_id=card_id))
+                    db.flush()
+            except IntegrityError:
+                # The unique constraint is the final guard for concurrent saves.
+                pass
     return {"saved":True,"card_id":card_id}
 
 @app.delete("/api/favorites/{card_id}")
@@ -595,8 +618,8 @@ def simulate(payload: dict, user: User | None = Depends(optional_current_user)):
 @app.post("/api/compare")
 def compare(payload: dict, user: User | None = Depends(optional_current_user)):
     ids = payload.get("card_ids", [])
-    if len(ids) < 2 or len(ids) > 4:
-        raise HTTPException(422, "Choose between two and four cards")
+    if not isinstance(ids, list) or len(ids) < 2 or len(ids) > 3 or any(not isinstance(item, str) for item in ids) or len(set(ids)) != len(ids):
+        raise HTTPException(422, "Choose two or three different cards")
     profile = Profile.model_validate(payload.get("profile", {}))
     ranked = _rank(profile)["recommendations"]
     found = [r for r in ranked if r["id"] in ids]
@@ -606,8 +629,19 @@ def compare(payload: dict, user: User | None = Depends(optional_current_user)):
         factory = get_session_factory()
         if factory:
             with factory.begin() as db:
-                db.add(ComparisonHistory(user_id=user.id, profile_snapshot=profile.model_dump(), card_ids=ids, results=found))
+                latest = db.query(ComparisonHistory).filter(ComparisonHistory.user_id == user.id).order_by(ComparisonHistory.created_at.desc()).first()
+                if latest is None or latest.card_ids != ids or latest.profile_snapshot != profile.model_dump():
+                    db.add(ComparisonHistory(user_id=user.id, profile_snapshot=profile.model_dump(), card_ids=ids, results=found))
     return {"cards":found}
+
+@app.get("/api/compare/latest")
+def latest_comparison(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        item = db.query(ComparisonHistory).filter(ComparisonHistory.user_id == user.id).order_by(ComparisonHistory.created_at.desc()).first()
+        if item is None:
+            return {"comparison":None}
+        return {"comparison":{"card_ids":item.card_ids,"profile":item.profile_snapshot,"cards":item.results}}
 
 @app.post("/api/voice/transcribe")
 async def voice_transcribe(audio: UploadFile = File(...), language: str = Form("en")):

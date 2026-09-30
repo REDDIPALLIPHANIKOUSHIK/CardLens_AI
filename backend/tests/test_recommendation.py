@@ -97,6 +97,12 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertIn('Synthetic demo data', card.json()['notice'])
         self.assertEqual(self.client.get('/api/cards/not-real').status_code, 404)
 
+    def test_compare_requires_two_to_three_unique_card_ids(self):
+        for card_ids in ([], ["demo-travel"], ["demo-travel", "demo-travel"], ["a", "b", "c", "d"]):
+            with self.subTest(card_ids=card_ids):
+                response = self.client.post('/api/compare', json={"profile":self.profile,"card_ids":card_ids})
+                self.assertEqual(response.status_code, 422)
+
     def test_natural_language_profile_extraction_returns_reviewable_values(self):
         text = "I earn around ₹70,000 a month. I spend ₹15,000 online, ₹8,000 on dining, ₹4,000 on fuel and ₹5,000 on travel. My credit score is 760 and I prefer cashback."
         response = self.client.post('/api/profile/extract', json={"text":text})
