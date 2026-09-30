@@ -27,6 +27,16 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/profile').json()["profile"]["credit_score"], 760)
         ranked = self.client.post('/api/recommend', json=self.profile)
         self.assertEqual(ranked.status_code, 200)
+        simulation = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"dining":9000}})
+        self.assertEqual(simulation.status_code, 200)
+        activity = self.client.get('/api/history').json()["items"]
+        self.assertEqual({item["type"] for item in activity}, {"recommendation","simulation"})
+        conversation = self.client.post('/api/conversations', json={"language":"en","messages":[{"role":"user","text":"Why this match?"},{"role":"assistant","text":"Because the profile fits."}]})
+        self.assertEqual(conversation.status_code, 201)
+        conversation_id = conversation.json()["conversation"]["id"]
+        self.assertEqual(len(self.client.get('/api/conversations/latest').json()["conversation"]["messages"]), 2)
+        other = TestClient(app)
+        self.assertEqual(other.put(f'/api/conversations/{conversation_id}', json={"messages":[]}).status_code, 401)
         duplicate = self.client.post('/api/auth/signup', json={"email":email,"password":"correct horse 2026","name":"Test User"})
         self.assertEqual(duplicate.status_code, 409)
         self.assertEqual(self.client.post('/api/auth/logout').status_code, 200)
