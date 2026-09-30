@@ -12,7 +12,7 @@ Audit performed against the repository tree and source on 30 September 2026. The
 - Idempotent demo-card seed script. Docker Compose has PostgreSQL/pgvector, API, and frontend services. CI runs migration and seed against PostgreSQL.
 - pgvector retrieval endpoint and JSONL ingestion script with source/version/verification metadata. Empty retrieval returns an explicit insufficient-evidence answer.
 - Replaceable LLM, embedding, STT, and TTS protocols and optional OpenAI-compatible adapter. LLM can call deterministic profile/recommendation/card/compare/value/simulation/RAG tools. Without credentials, deterministic fallbacks remain.
-- Optional voice transcription and speech endpoints with bounded uploads, supported language codes (English/Hindi/Telugu), and friendly failure response.
+- Optional voice transcription and speech endpoints with bounded uploads; English, Hindi, Telugu, and Tamil are accepted, with browser speech fallback where the browser provides a matching locale.
 - Advisor panel with text chat, bounded client-side context, optional microphone input/speech output, language selector and source links; authenticated conversations now persist as a per-user latest conversation.
 - Optional natural-language profile extraction with validated AI JSON, one retry, deterministic local fallback, unknown fields left unset, and editable user review before recommendations.
 - API request IDs, per-IP in-process rate windows, redacted structured request metadata logs, readiness checks, and environment-based CORS. Production mode fails fast without DATABASE_URL and explicit HTTPS FRONTEND_ORIGINS, and rejects wildcard CORS.
@@ -21,7 +21,7 @@ Audit performed against the repository tree and source on 30 September 2026. The
 
 ## PARTIALLY IMPLEMENTED
 
-- Email/password authentication uses scrypt password hashes and opaque database-backed HTTP-only sessions; profiles, recommendation snapshots, What-If history, the latest Advisor conversation, and saved cards are account-owned in PostgreSQL. Profiles and recommendations restore on sign-in. Comparison history, multiple conversation archives, account deletion/password reset, and consent/retention controls are not implemented. The ranking still uses the in-memory synthetic card constants as its authoritative catalog.
+- Email/password authentication uses scrypt password hashes and opaque database-backed HTTP-only sessions; password change and password-confirmed account deletion are implemented. Profiles, recommendation snapshots, comparison/What-If history, the latest Advisor conversation, saved cards, and voice language preference are account-owned in PostgreSQL. Profiles and rankings restore on sign-in. Multiple conversation archives/search, explicit profile consent, retention schedules, and consent audit history are not implemented. The ranking still uses the in-memory synthetic card constants as its authoritative catalog.
 - RAG ingestion/retrieval path is implemented and tested with a fake embedding vector in CI. No issuer-verified documents are bundled, and real external embedding/LLM API calls are not exercised in CI.
 - LLM adapter/tool flow is implemented and tool routing is tested with a fake provider. Live model quality, timeouts against a provider, retry behavior, citations rendered by a live model, and Hindi/Telugu answer quality are not verified. Natural-language profile extraction is optional and never required for demo recommendations.
 - Voice API and UI paths exist. Live STT/TTS, real device/browser permission behavior, and multilingual speech accuracy are not verified.
@@ -36,7 +36,7 @@ Audit performed against the repository tree and source on 30 September 2026. The
 - Full public marketing/landing experience, account recovery/password change, account deletion, profile consent/retention controls, and a complete account settings area.
 - Issuer-verified real card catalog with change monitoring and a production document set.
 - Conversation archive/search and more complete cross-session Advisor memory.
-- Tamil language support and end-to-end multilingual Advisor/voice validation; browser microphone/speaker accessibility testing.
+- End-to-end multilingual Advisor/voice validation (including generated answer quality); browser microphone/speaker accessibility testing.
 - Shared/distributed rate limiting and cache infrastructure, production observability/alerting, CI lint/type-check rules, and verified production deployment.
 - Wider frontend accessibility/interaction tests and real-device end-to-end demo testing. The new authentication flow is covered by API integration tests; no browser E2E suite is configured.
 - External deployment to a managed host/database has not been performed or verified.
