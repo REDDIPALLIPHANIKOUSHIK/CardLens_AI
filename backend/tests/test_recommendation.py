@@ -21,7 +21,7 @@ class RecommendationApiTests(unittest.TestCase):
     def test_missing_eligibility_values_are_not_invented(self):
         result = self.client.post('/api/recommend', json={"spending":{"shopping":1000}}).json()
         self.assertTrue(result['recommendations'])
-        self.assertTrue(all(x['confidence'] < 100 for x in result['recommendations']))
+        self.assertTrue(all(x['profile_completeness'] < 100 for x in result['recommendations']))
 
     def test_negative_spending_is_rejected(self):
         response = self.client.post('/api/recommend', json={"spending":{"fuel":-1}})
