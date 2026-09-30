@@ -56,6 +56,38 @@ The CardLens Score endpoint includes six weighted factors, category reward estim
 
 To ingest source material, create JSONL with the required metadata and verified primary-source text, then run `python scripts/ingest_documents.py path/to/documents.jsonl`. The embedding adapter requires a configured embedding key. Do not label synthetic examples as verified issuer documents.
 
+## Run the production-like Docker demo
+
+Requirements: Docker Compose v2.
+
+```bash
+cp .env.example .env
+docker compose up -d db
+docker compose build
+docker compose run --rm api alembic -c backend/alembic.ini upgrade head
+docker compose run --rm api python scripts/seed_database.py
+docker compose up -d
+```
+
+On Windows PowerShell, copy the environment file with `Copy-Item .env.example .env`. Open the static Nginx-served frontend at http://localhost:5173. Replace the example database password before sharing the stack. For a hosted deployment, set `VITE_API_BASE_URL` to the public API base URL and `FRONTEND_ORIGINS` to the exact frontend origin, then rebuild.
+
+## Environment variables
+
+`.env.example` documents the local database URL/password, allowed frontend origins, API rate limit, static frontend API URL, and optional LLM, embedding, and voice provider settings. Leave AI keys blank to run deterministic ranking and text fallbacks. Keep all provider keys on the backend; never place secrets in `VITE_*` values.
+
+## Verification
+
+```bash
+pip install -r backend/requirements-dev.txt
+pytest -q backend/tests
+cd frontend && npm install && npm run build
+cd ..
+docker build -f backend/Dockerfile -t cardlens-api:local .
+docker build -t cardlens-web:local ./frontend
+```
+
+CI also applies the PostgreSQL/pgvector migration, seeds demo data, runs pytest, builds the frontend, and builds both production images. See [testing](docs/testing.md) for coverage and [deployment](docs/deployment.md) for health checks and troubleshooting.
+
 ## Current limitations
 
 - The demo offer catalog is synthetic and is not an up-to-date list of real credit cards.
