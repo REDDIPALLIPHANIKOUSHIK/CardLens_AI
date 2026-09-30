@@ -548,7 +548,7 @@ def latest_recommendations(user: User = Depends(current_user)):
 def simulate(payload: dict, user: User | None = Depends(optional_current_user)):
     profile = Profile.model_validate(payload.get("profile", {}))
     changes = payload.get("changes", {})
-    allowed = set(CATEGORIES) | {"monthly_income", "credit_score", "annual_fee_max"}
+    allowed = set(CATEGORIES) | {"monthly_income", "credit_score", "annual_fee_max", "reward_preference"}
     unknown = set(changes) - allowed
     if unknown:
         raise HTTPException(status_code=422, detail=f"Unsupported simulation fields: {', '.join(sorted(unknown))}")
