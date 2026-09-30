@@ -56,7 +56,7 @@ class OpenAICompatibleProvider:
         return [float(value) for value in vector]
 
     async def transcribe(self, audio: bytes, filename: str, language: str) -> str:
-        language_names = {"en":"English","hi":"Hindi","te":"Telugu"}
+        language_names = {"en":"English","hi":"Hindi","te":"Telugu","ta":"Tamil"}
         data = {"model": os.getenv("VOICE_STT_MODEL", "whisper-1"), "language": language, "prompt": f"Transcribe the speech in {language_names.get(language, 'English')}. Preserve spoken financial amounts."}
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=3.0)) as client:
             response = await client.post(f"{self.base_url}/audio/transcriptions", headers=self._headers(), data=data, files={"file":(filename,audio,"audio/webm")})
