@@ -48,7 +48,16 @@ class RecommendationApiTests(unittest.TestCase):
 
     def test_health_and_demo_catalog_notice(self):
         self.assertEqual(self.client.get('/api/health').status_code, 200)
+        self.assertEqual(self.client.get('/health').status_code, 200)
+        self.assertEqual(self.client.get('/ready').status_code, 200)
         self.assertIn('Synthetic demo data', self.client.get('/api/cards').json()['notice'])
+
+    def test_readiness_returns_controlled_database_error(self):
+        with patch('backend.app.main.check_database', return_value=(False, 'database_unavailable')):
+            response = self.client.get('/ready')
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['detail']['error_code'], 'DATABASE_UNAVAILABLE')
+        self.assertNotIn('Traceback', response.text)
 
     def test_recommendations_are_deterministic_and_ranked(self):
         a = self.client.post('/api/recommend', json=self.profile).json()['recommendations']
