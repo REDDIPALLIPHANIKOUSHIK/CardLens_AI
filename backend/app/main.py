@@ -171,7 +171,8 @@ def _rank(profile: Profile):
                 row["why_not"] = reasons
     return {"recommendations":rows,"excluded":excluded,"message":None if rows else "We couldn't find a strong match based on your current profile."}
 
-@app.get("/api/health")
+@app.get("/health")
+@app.get("/api/health", include_in_schema=False)
 def health():
     ready, database = check_database()
     return {"status":"ok","service":"CardLens AI","mode":"DEMO" if not database_url() else "POSTGRESQL","database":database,"catalog":"synthetic demo data"}
@@ -515,7 +516,8 @@ async def chat(payload: dict):
         return {"answer":"Use the What-If controls to change spending or fee preference; the deterministic simulator will recalculate eligibility, values, scores, and ranking without an AI call.","mode":"deterministic_tools","grounded":True,"tools_called":["run_what_if_simulation"]}
     return {"answer":"I can explain your current ranking, compare your top eligible demo cards, and search the verified card knowledge base. Card terms are not answered unless a source document is indexed.","mode":"deterministic_fallback","grounded":True,"tools_called":[]}
 
-@app.get("/api/ready")
+@app.get("/ready")
+@app.get("/api/ready", include_in_schema=False)
 def ready():
     available, database = check_database()
     if not available:
