@@ -6,7 +6,8 @@ from threading import Lock
 import json, logging, os, re, time, uuid
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from fastapi import File, Form, UploadFile
 from .database import check_database, database_url
 from .ai.providers import configured_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
@@ -227,6 +228,43 @@ def compare(payload: dict):
     if len(found) != len(set(ids)):
         raise HTTPException(404, "One or more cards are not eligible or unknown")
     return {"cards":found}
+
+@app.post("/api/voice/transcribe")
+async def voice_transcribe(audio: UploadFile = File(...), language: str = Form("en")):
+    if language not in {"en", "hi", "te"}:
+        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+    if audio.content_type not in {"audio/webm", "audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg"}:
+        raise HTTPException(status_code=415, detail="Unsupported audio format.")
+    raw = await audio.read(10 * 1024 * 1024 + 1)
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio must be under 10 MiB.")
+    provider = configured_provider()
+    if provider is None:
+        raise HTTPException(status_code=503, detail={"success":False,"error_code":"VOICE_UNAVAILABLE","message":"Voice is temporarily unavailable. Continue with text."})
+    try:
+        transcript = await provider.transcribe(raw, audio.filename or "recording.webm", language)
+        return {"text":transcript,"language":language}
+    except Exception:
+        logger.warning(json.dumps({"event":"voice_transcription_unavailable","language":language}))
+        raise HTTPException(status_code=503, detail={"success":False,"error_code":"VOICE_UNAVAILABLE","message":"Voice is temporarily unavailable. Continue with text."})
+
+@app.post("/api/voice/speak")
+async def voice_speak(payload: dict):
+    language = str(payload.get("language", "en"))
+    text_value = str(payload.get("text", "")).strip()
+    if language not in {"en", "hi", "te"}:
+        raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
+    if not text_value or len(text_value) > 4000:
+        raise HTTPException(status_code=422, detail="Text is required and must be under 4,000 characters.")
+    provider = configured_provider()
+    if provider is None:
+        raise HTTPException(status_code=503, detail={"success":False,"error_code":"VOICE_UNAVAILABLE","message":"Voice is temporarily unavailable. Continue with text."})
+    try:
+        audio, media_type = await provider.speak(text_value, language)
+        return Response(content=audio, media_type=media_type)
+    except Exception:
+        logger.warning(json.dumps({"event":"voice_synthesis_unavailable","language":language}))
+        raise HTTPException(status_code=503, detail={"success":False,"error_code":"VOICE_UNAVAILABLE","message":"Voice is temporarily unavailable. Continue with text."})
 
 @app.post("/api/rag/search")
 async def rag_search(payload: dict):
