@@ -27,6 +27,13 @@ class AuthSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
+    voice_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 class UserProfile(Base):
     __tablename__ = "user_profiles"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
