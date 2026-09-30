@@ -16,6 +16,25 @@ from pydantic import BaseModel, Field, model_validator
 logger = logging.getLogger('cardlens.api')
 app = FastAPI(title="CardLens AI", version="0.1.0", description="Deterministic demo credit-card suitability recommendations")
 origins = [value.strip() for value in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",") if value.strip()]
+
+def validate_runtime_configuration() -> None:
+    if os.getenv("APP_ENV", "development").strip().lower() != "production":
+        return
+    missing = []
+    if not database_url():
+        missing.append("DATABASE_URL")
+    configured_origins = os.getenv("FRONTEND_ORIGINS", "").strip()
+    if not configured_origins:
+        missing.append("FRONTEND_ORIGINS")
+    if missing:
+        raise RuntimeError("Production startup requires: " + ", ".join(missing))
+    production_origins = [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
+    if "*" in production_origins or any(not origin.startswith("https://") for origin in production_origins):
+        raise RuntimeError("Production FRONTEND_ORIGINS must contain explicit HTTPS origins and cannot use '*'.")
+    if not production_origins:
+        raise RuntimeError("Production FRONTEND_ORIGINS must contain at least one HTTPS origin.")
+
+validate_runtime_configuration()
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Request-ID"])
 
 _RATE_WINDOW = 60
