@@ -256,7 +256,7 @@ async def voice_speak(payload: dict):
         raise HTTPException(status_code=422, detail="Language must be en, hi, or te.")
     if not text_value or len(text_value) > 4000:
         raise HTTPException(status_code=422, detail="Text is required and must be under 4,000 characters.")
-    provider = configured_provider()
+    provider = configured_voice_provider()
     if provider is None:
         raise HTTPException(status_code=503, detail={"success":False,"error_code":"VOICE_UNAVAILABLE","message":"Voice is temporarily unavailable. Continue with text."})
     try:
