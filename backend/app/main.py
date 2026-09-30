@@ -308,7 +308,7 @@ async def _dispatch_assistant_tool(name: str, arguments: dict, profile: Profile)
         return result, result.get("sources", [])
     return {"error":"Unknown tool"}, sources
 
-async def _llm_tool_answer(question: str, profile: Profile, language: str):
+async def _llm_tool_answer(question: str, profile: Profile, language: str, history: list | None = None, previous_simulation: dict | None = None):
     provider = configured_provider()
     if provider is None:
         return None
@@ -319,7 +319,13 @@ async def _llm_tool_answer(question: str, profile: Profile, language: str):
         "Never calculate or invent values. Treat demo card data as synthetic. For issuer facts use search_card_knowledge and only state retrieved evidence; if it returns no evidence, say you lack verified information. "
         "Do not imply approval. Keep the response concise and answer in " + language_name + "."
     )
-    messages = [{"role":"system","content":system},{"role":"user","content":question}]
+    if previous_simulation:
+        system += " Previous deterministic simulation result: " + json.dumps(previous_simulation,ensure_ascii=False,default=str)[:5000] + ". Use run_what_if_simulation if the user asks why it changed."
+    safe_history = []
+    for item in (history or [])[-6:]:
+        if isinstance(item, dict) and item.get("role") in {"user","assistant"} and isinstance(item.get("content"),str):
+            safe_history.append({"role":item["role"],"content":item["content"][:1500]})
+    messages = [{"role":"system","content":system},*safe_history,{"role":"user","content":question}]
     first = await provider.chat(messages, AI_TOOLS)
     calls = first.get("tool_calls") or []
     if not calls:
@@ -382,11 +388,20 @@ async def chat(payload: dict):
         answer = "Verified source excerpts:\n" + "\n".join(f"• {item['card_name']}: {item['text']}" for item in excerpts)
         return {"answer":answer,"mode":"retrieval","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
     try:
-        llm_result = await _llm_tool_answer(question, profile, language)
+        llm_result = await _llm_tool_answer(question, profile, language, payload.get('history'), payload.get('last_simulation'))
         if llm_result:
             return {**llm_result,"mode":"llm_tools","grounded":True}
     except Exception as exc:
         logger.warning(json.dumps({"event":"llm_tool_fallback","error_type":type(exc).__name__}))
+    last_simulation = payload.get("last_simulation")
+    if isinstance(last_simulation, dict) and any(term in lower for term in ("why", "ranking changed", "ranking change")):
+        changes = last_simulation.get("changes", {})
+        if isinstance(changes, dict):
+            try:
+                recalculated = simulate({"profile":profile.model_dump(),"changes":changes})
+                return {"answer":recalculated["explanation"],"mode":"deterministic_tools","grounded":True,"tools_called":["run_what_if_simulation"],"simulation":recalculated}
+            except (HTTPException, TypeError, ValueError):
+                pass
     ranked = _rank(profile)["recommendations"]
     if not ranked:
         return {"answer":"There are no eligible synthetic demo cards for the supplied profile.","mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
