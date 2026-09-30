@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: cardlens
       POSTGRES_USER: cardlens
-      POSTGRES_PASSWORD: cardlens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cardlens-dev-only}
     ports:
       - "5432:5432"
     volumes:
@@ -22,13 +22,13 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+psycopg://cardlens:cardlens@db:5432/cardlens
-      FRONTEND_ORIGINS: http://localhost:5173,http://localhost:4173
+      DATABASE_URL: postgresql+psycopg://cardlens:${POSTGRES_PASSWORD:-cardlens-dev-only}@db:5432/cardlens
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173,http://localhost:4173}
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -37,10 +37,10 @@ services:
     build:
       context: frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
     ports:
-      - "5173:5173"
-    environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      - "5173:80"
     depends_on:
       api:
         condition: service_healthy
