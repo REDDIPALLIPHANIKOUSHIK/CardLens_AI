@@ -19,7 +19,16 @@ def get_engine() -> Engine | None:
     url = database_url()
     if not url:
         return None
-    return create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+    serverless = os.getenv("VERCEL", "").lower() in {"1", "true"}
+    default_pool_size = "1" if serverless else "5"
+    default_max_overflow = "0" if serverless else "5"
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_size=max(1, int(os.getenv("DATABASE_POOL_SIZE", default_pool_size))),
+        max_overflow=max(0, int(os.getenv("DATABASE_MAX_OVERFLOW", default_max_overflow))),
+        pool_timeout=5 if serverless else 30,
+    )
 
 def get_session_factory():
     engine = get_engine()
