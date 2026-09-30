@@ -86,7 +86,7 @@ docker build -f backend/Dockerfile -t cardlens-api:local .
 docker build -t cardlens-web:local ./frontend
 ```
 
-CI also applies the PostgreSQL/pgvector migration, seeds demo data, runs pytest, builds the frontend, and builds both production images. See [testing](docs/testing.md) for coverage and [deployment](docs/deployment.md) for health checks and troubleshooting.
+CI also applies the PostgreSQL/pgvector migration, seeds demo data, runs pytest, builds the frontend and both production images, then smoke-tests the Compose demo over HTTP. See [testing](docs/testing.md) for coverage and [deployment](docs/deployment.md) for health checks and troubleshooting.
 
 ## Current limitations
 
