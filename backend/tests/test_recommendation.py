@@ -35,6 +35,11 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(conversation.status_code, 201)
         conversation_id = conversation.json()["conversation"]["id"]
         self.assertEqual(len(self.client.get('/api/conversations/latest').json()["conversation"]["messages"]), 2)
+        favorite = self.client.post('/api/favorites/demo-travel')
+        self.assertEqual(favorite.status_code, 201)
+        self.assertEqual(self.client.get('/api/favorites').json()["items"][0]["card_id"], "demo-travel")
+        self.assertEqual(self.client.delete('/api/favorites/demo-travel').status_code, 200)
+        self.assertEqual(self.client.get('/api/favorites').json()["items"], [])
         other = TestClient(app)
         self.assertEqual(other.put(f'/api/conversations/{conversation_id}', json={"messages":[]}).status_code, 401)
         duplicate = self.client.post('/api/auth/signup', json={"email":email,"password":"correct horse 2026","name":"Test User"})
