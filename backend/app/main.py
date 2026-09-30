@@ -222,7 +222,7 @@ def _deterministic_profile_extract(text: str) -> dict:
     spending = {}
     # Prefer amounts explicitly followed by a category, such as "₹8,000 on dining".
     for key, term in categories.items():
-        match = re.search(amount + r"[^0-9]{0,15}(?:" + term + r")\\b", text, re.I)
+        match = re.search(amount + r"[^0-9]{0,15}(?:" + term + r")", text, re.I)
         if match:
             spending[key] = float(match.group(1).replace(",", ""))
     # Then accept a category before its amount, without overriding a clearer postfix match.
