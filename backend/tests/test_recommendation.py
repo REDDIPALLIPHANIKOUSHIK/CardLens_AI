@@ -7,16 +7,42 @@ from backend.app.database import get_session_factory
 from datetime import date
 import asyncio
 import os
+import uuid
 
 class RecommendationApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
         self.profile = {"monthly_income":70000,"credit_score":760,"annual_fee_max":1500,"reward_preference":"cashback","spending":{"shopping":15000,"dining":8000,"fuel":4000,"travel":5000}}
 
+    def test_signup_login_logout_and_persisted_profile(self):
+        email = f"cardlens-{uuid.uuid4()}@example.test"
+        signup = self.client.post('/api/auth/signup', json={"email":email,"password":"correct horse 2026","name":"Test User"})
+        self.assertEqual(signup.status_code, 201)
+        self.assertTrue(signup.cookies.get("cardlens_session"))
+        self.assertEqual(self.client.get('/api/auth/me').json()['user']['email'], email)
+        self.assertNotIn("password_hash", signup.json()["user"])
+        saved = self.client.put('/api/profile', json=self.profile)
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.json()["saved"])
+        self.assertEqual(self.client.get('/api/profile').json()["profile"]["credit_score"], 760)
+        ranked = self.client.post('/api/recommend', json=self.profile)
+        self.assertEqual(ranked.status_code, 200)
+        duplicate = self.client.post('/api/auth/signup', json={"email":email,"password":"correct horse 2026","name":"Test User"})
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(self.client.post('/api/auth/logout').status_code, 200)
+        self.assertEqual(self.client.get('/api/profile').status_code, 401)
+        login = self.client.post('/api/auth/login', json={"email":email,"password":"correct horse 2026"})
+        self.assertEqual(login.status_code, 200)
+        self.assertEqual(self.client.get('/api/profile').json()["profile"]["credit_score"], 760)
+        self.assertEqual(self.client.post('/api/auth/logout').status_code, 200)
+
+    def test_profile_requires_authentication(self):
+        response = self.client.get('/api/profile')
+        self.assertEqual(response.status_code, 401)
+        response = self.client.put('/api/profile', json=self.profile)
+        self.assertEqual(response.status_code, 401)
+
     def test_profile_validation_and_card_detail_routes(self):
-        response = self.client.post('/api/profile', json=self.profile)
-        self.assertTrue(response.json()['validated'])
-        self.assertEqual(response.json()['storage'], 'session_only')
         card = self.client.get('/api/cards/demo-travel')
         self.assertEqual(card.status_code, 200)
         self.assertIn('Synthetic demo data', card.json()['notice'])
