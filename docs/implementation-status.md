@@ -1,6 +1,6 @@
 # CardLens AI implementation status
 
-Audit performed against the repository tree and source on 30 September 2026. The last confirmed green CI run at the start of this continuation passed backend tests and the frontend production build. This document reflects the subsequent changes; check the latest Actions run for final verification.
+Audit performed against the repository tree and source on 30 September 2026. The latest confirmed green CI run (`fde0223`) passed PostgreSQL migration/seed, backend tests, frontend production build, and both Docker image builds.
 
 ## IMPLEMENTED
 
@@ -14,6 +14,7 @@ Audit performed against the repository tree and source on 30 September 2026. The
 - Replaceable LLM, embedding, STT, and TTS protocols and optional OpenAI-compatible adapter. LLM can call deterministic profile/recommendation/card/compare/value/simulation/RAG tools. Without credentials, deterministic fallbacks remain.
 - Optional voice transcription and speech endpoints with bounded uploads, supported language codes (English/Hindi/Telugu), and friendly failure response.
 - Advisor panel with text chat, bounded client-side message context, optional microphone input/speech output, language selector for voice, and source links.
+- Optional natural-language profile extraction with validated AI JSON, one retry, deterministic local fallback, unknown fields left unset, and editable user review before recommendations.
 - API request IDs, per-IP in-process rate windows, redacted structured request metadata logs, readiness checks, and environment-based CORS.
 - Backend tests cover scoring, explanations, compare, What-If, LLM tool routing, voice fallback, empty RAG, pgvector retrieval and model schema. CI builds the frontend and runs database migration/seed/tests.
 - README, architecture, deployment, testing, implementation status, and interview notes.
@@ -22,7 +23,7 @@ Audit performed against the repository tree and source on 30 September 2026. The
 
 - PostgreSQL tables, migration, and seeding work; app profiles/recommendations/conversations/simulation history are not yet durably connected to authenticated user sessions. The ranking still uses the in-memory card constants as its authoritative demo catalog.
 - RAG ingestion/retrieval path is implemented and tested with a fake embedding vector in CI. No issuer-verified documents are bundled, and real external embedding/LLM API calls are not exercised in CI.
-- LLM adapter/tool flow is implemented and tool routing is tested with a fake provider. Live model quality, timeouts against a provider, retry behavior, citations rendered by a live model, and Hindi/Telugu answer quality are not verified.
+- LLM adapter/tool flow is implemented and tool routing is tested with a fake provider. Live model quality, timeouts against a provider, retry behavior, citations rendered by a live model, and Hindi/Telugu answer quality are not verified. Natural-language profile extraction is optional and never required for demo recommendations.
 - Voice API and UI paths exist. Live STT/TTS, real device/browser permission behavior, and multilingual speech accuracy are not verified.
 - Confidence is a deterministic heuristic from profile completeness and score separation; it is not calibrated against user outcomes.
 - Rate limiting is in-process by remote address and must be replaced by a shared store before multi-instance deployment.
