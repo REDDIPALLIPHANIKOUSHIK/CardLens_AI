@@ -438,7 +438,7 @@ def simulate(payload: dict, user: User | None = Depends(optional_current_user)):
         explanation = "No eligible demo cards match the simulated profile."
     result = {"before":before,"after":after,"moved":moved,"explanation":explanation,"changes":changes}
     factory = get_session_factory()
-    if user is not None and factory is not None:
+    if isinstance(user, User) and factory is not None:
         with factory.begin() as db:
             db.add(SimulationHistory(user_id=user.id, before_profile=profile.model_dump(), changes=changes, results=result))
     return result
