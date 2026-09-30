@@ -45,3 +45,23 @@ CardLens provides informational recommendations, not financial advice or an issu
 ## Stack
 
 React, TypeScript, Vite, FastAPI, Pydantic, and a deterministic hybrid ranking baseline. See `docs/architecture.md` for the system boundary and extension path.
+
+## PostgreSQL and pgvector
+
+For the full local stack, follow [docs/deployment.md](docs/deployment.md). PostgreSQL migrations live in `backend/migrations`; the initial migration enables pgvector and creates the relational tables. `scripts/seed_database.py` loads only explicitly synthetic demo offers. With `DATABASE_URL` unset, the API continues to use its deterministic demo catalog.
+
+## Score, What-If, Advisor, and RAG
+
+The CardLens Score endpoint includes six weighted factors, category reward estimates, recommendation reasons, rank-relative explanations, profile completeness, and a measurable confidence estimate with a reason. What-If accepts category spend, income, score, and fee-preference changes and returns rank movements. The Advisor uses deterministic calculations and, when configured, optional LLM tool calls; factual issuer questions use pgvector retrieval and return source metadata. Empty or unavailable RAG fails closed. Optional transcription and speech endpoints degrade to a text fallback.
+
+To ingest source material, create JSONL with the required metadata and verified primary-source text, then run `python scripts/ingest_documents.py path/to/documents.jsonl`. The embedding adapter requires a configured embedding key. Do not label synthetic examples as verified issuer documents.
+
+## Current limitations
+
+- The demo offer catalog is synthetic and is not an up-to-date list of real credit cards.
+- Reward caps, exclusions, joining fees, redemption limitations, and benefit conditions are not modeled for the synthetic catalog.
+- PostgreSQL schema and seeding are exercised in CI, but profile, recommendation, and conversation writes are not yet wired to authenticated user workflows. The session/profile tables are groundwork, not proof of durable user persistence.
+- The demo has no authentication, profile consent/retention controls, production distributed rate limiter, or production deployment verification. Do not enter real sensitive financial data.
+- No recommendation outcome dataset is available, so there are no model-performance claims.
+
+See [implementation status](docs/implementation-status.md), [architecture](docs/architecture.md), [testing](docs/testing.md), [deployment](docs/deployment.md), and [interview notes](docs/interview-preparation.md).
