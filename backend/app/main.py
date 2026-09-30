@@ -57,7 +57,7 @@ def _rank(profile: Profile):
         eligibility = 85 if profile.monthly_income is not None and profile.credit_score is not None else 60
         benefits = 60 if c["lounge_access"] else 40
         score = round(WEIGHTS["spending_match"]*match + WEIGHTS["reward_value"]*reward_score + WEIGHTS["preference_match"]*preference + WEIGHTS["eligibility"]*eligibility + WEIGHTS["fee_value"]*fee_fit + WEIGHTS["benefits"]*benefits)
-        rows.append({**c,"score":score,"confidence":round(45 + 55*min(1, (len(profile.spending)+int(profile.monthly_income is not None)+int(profile.credit_score is not None))/7)),"estimated_annual_rewards":round(gross),"estimated_net_annual_value":round(net),"why":[f"Estimated net value ₹{round(net):,} from the spending you entered",f"{c['reward_type'].title()} reward style"],"limitations":["Demo reward rates; issuer caps and exclusions are not modeled","Eligibility is indicative and does not guarantee approval"]})
+        rows.append({**c,"score":score,"profile_completeness":round(100*min(1, (len(profile.spending)+int(profile.monthly_income is not None)+int(profile.credit_score is not None))/7)),"estimated_annual_rewards":round(gross),"estimated_net_annual_value":round(net),"why":[f"Estimated net value ₹{round(net):,} from the spending you entered",f"{c['reward_type'].title()} reward style"],"limitations":["Demo reward rates; issuer caps and exclusions are not modeled","Eligibility is indicative and does not guarantee approval"]})
     rows.sort(key=lambda r:(-r["score"],-r["estimated_net_annual_value"],r["id"]))
     return {"recommendations":rows,"excluded":excluded,"message":None if rows else "We couldn't find a strong match based on your current profile."}
 
