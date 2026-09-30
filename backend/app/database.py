@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
@@ -34,6 +34,8 @@ def get_session_factory():
     engine = get_engine()
     return sessionmaker(bind=engine, expire_on_commit=False) if engine else None
 
+LATEST_SCHEMA_REVISION = "0005_user_settings"
+
 def check_database() -> tuple[bool, str]:
     engine = get_engine()
     if engine is None:
@@ -41,6 +43,16 @@ def check_database() -> tuple[bool, str]:
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
+            inspector = inspect(connection)
+            tables = set(inspector.get_table_names())
+            if "alembic_version" not in tables or "users" not in tables or "auth_sessions" not in tables:
+                return False, "migrations_required"
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            if not {"id", "email", "name", "password_hash"}.issubset(user_columns):
+                return False, "migrations_required"
+            revisions = connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
+            if revisions != [LATEST_SCHEMA_REVISION]:
+                return False, "migrations_required"
         return True, "postgresql"
     except Exception:
         return False, "database_unavailable"
