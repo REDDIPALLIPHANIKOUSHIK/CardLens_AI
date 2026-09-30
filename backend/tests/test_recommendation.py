@@ -82,6 +82,13 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(speak.status_code, 503)
         self.assertIn('Continue with text', transcribe.json()['detail']['message'])
 
+    def test_advisor_recalculates_when_asked_why_simulation_changed(self):
+        last = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"travel":15000}}).json()
+        response = self.client.post('/api/chat', json={"message":"Why did the ranking change?","profile":self.profile,"last_simulation":last})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['tools_called'], ['run_what_if_simulation'])
+        self.assertIn('simulation', response.json())
+
     def test_llm_tool_call_uses_backend_ranking_result(self):
         class FakeProvider:
             async def chat(self, messages, tools=None):
