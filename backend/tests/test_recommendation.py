@@ -29,8 +29,10 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertEqual(ranked.status_code, 200)
         simulation = self.client.post('/api/simulate', json={"profile":self.profile,"changes":{"dining":9000}})
         self.assertEqual(simulation.status_code, 200)
+        comparison = self.client.post('/api/compare', json={"profile":self.profile,"card_ids":[card["id"] for card in ranked.json()["recommendations"][:2]]})
+        self.assertEqual(comparison.status_code, 200)
         activity = self.client.get('/api/history').json()["items"]
-        self.assertEqual({item["type"] for item in activity}, {"recommendation","simulation"})
+        self.assertEqual({item["type"] for item in activity}, {"recommendation","simulation","comparison"})
         conversation = self.client.post('/api/conversations', json={"language":"en","messages":[{"role":"user","text":"Why this match?"},{"role":"assistant","text":"Because the profile fits."}]})
         self.assertEqual(conversation.status_code, 201)
         conversation_id = conversation.json()["conversation"]["id"]
