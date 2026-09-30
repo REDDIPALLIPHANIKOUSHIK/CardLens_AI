@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
 from .database import check_database, database_url, get_session_factory
 from .auth import current_user, optional_current_user, router as auth_router
-from .models import ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile
+from .models import ComparisonHistory, ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile
 from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
@@ -326,6 +326,7 @@ def account_history(user: User = Depends(current_user)):
     with factory() as db:
         recommendations = db.query(Recommendation).filter(Recommendation.user_id == user.id).order_by(Recommendation.created_at.desc()).limit(5).all()
         simulations = db.query(SimulationHistory).filter(SimulationHistory.user_id == user.id).order_by(SimulationHistory.created_at.desc()).limit(5).all()
+        comparisons = db.query(ComparisonHistory).filter(ComparisonHistory.user_id == user.id).order_by(ComparisonHistory.created_at.desc()).limit(5).all()
         activity = [
             {"type":"recommendation","created_at":item.created_at.isoformat() if item.created_at else None,
              "summary":(item.results[0].get("name","Recommendation run") + " ranked first") if item.results else "Recommendation run saved"}
@@ -335,6 +336,11 @@ def account_history(user: User = Depends(current_user)):
              "summary":item.results.get("explanation","What-If scenario saved")}
             for item in simulations
         ]
+        activity.extend(
+            {"type":"comparison","created_at":item.created_at.isoformat() if item.created_at else None,
+             "summary":"Compared " + " and ".join(card.get("name","card") for card in item.results[:3])}
+            for item in comparisons
+        )
         activity.sort(key=lambda item:item["created_at"] or "", reverse=True)
         return {"items":activity[:8]}
 
@@ -485,7 +491,7 @@ def simulate(payload: dict, user: User | None = Depends(optional_current_user)):
     return result
 
 @app.post("/api/compare")
-def compare(payload: dict):
+def compare(payload: dict, user: User | None = Depends(optional_current_user)):
     ids = payload.get("card_ids", [])
     if len(ids) < 2 or len(ids) > 4:
         raise HTTPException(422, "Choose between two and four cards")
@@ -494,6 +500,11 @@ def compare(payload: dict):
     found = [r for r in ranked if r["id"] in ids]
     if len(found) != len(set(ids)):
         raise HTTPException(404, "One or more cards are not eligible or unknown")
+    if isinstance(user, User):
+        factory = get_session_factory()
+        if factory:
+            with factory.begin() as db:
+                db.add(ComparisonHistory(user_id=user.id, profile_snapshot=profile.model_dump(), card_ids=ids, results=found))
     return {"cards":found}
 
 @app.post("/api/voice/transcribe")
