@@ -22,6 +22,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: postgresql+psycopg://cardlens:${POSTGRES_PASSWORD:-cardlens-dev-only}@db:5432/cardlens
       FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173,http://localhost:4173}
     depends_on:
