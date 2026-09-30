@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi import File, Form, UploadFile
 from .database import check_database, database_url, get_session_factory
 from .auth import current_user, optional_current_user, router as auth_router
-from .models import ComparisonHistory, ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile
+from .models import ComparisonHistory, ConversationMessage, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile, UserSettings
 from .ai.providers import configured_provider, configured_embedding_provider, configured_voice_provider
 from .rag import INSUFFICIENT_EVIDENCE, search_card_knowledge
 from pydantic import BaseModel, Field, model_validator
@@ -216,6 +216,27 @@ def _account_db():
     if factory is None:
         raise HTTPException(status_code=503, detail={"code":"ACCOUNT_STORAGE_UNAVAILABLE","message":"Account storage is temporarily unavailable."})
     return factory
+
+class SettingsInput(BaseModel):
+    voice_language: Literal["en","hi","te"] = "en"
+
+@app.get("/api/settings")
+def get_settings(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        row = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+        return {"voice_language":row.voice_language if row else "en"}
+
+@app.put("/api/settings")
+def save_settings(payload: SettingsInput, user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        row = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+        if row is None:
+            db.add(UserSettings(user_id=user.id, voice_language=payload.voice_language))
+        else:
+            row.voice_language = payload.voice_language
+    return {"voice_language":payload.voice_language,"saved":True}
 
 @app.get("/api/favorites")
 def list_favorites(user: User = Depends(current_user)):
