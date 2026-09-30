@@ -285,6 +285,16 @@ def save_profile(profile: Profile, user: User = Depends(current_user)):
             row.profile = value
     return {"profile":value,"complete":True,"saved":True}
 
+@app.delete("/api/profile")
+def reset_profile(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory.begin() as db:
+        db.query(UserProfile).filter(UserProfile.user_id == user.id).delete()
+        db.query(Recommendation).filter(Recommendation.user_id == user.id).delete()
+        db.query(SimulationHistory).filter(SimulationHistory.user_id == user.id).delete()
+        db.query(ComparisonHistory).filter(ComparisonHistory.user_id == user.id).delete()
+    return {"reset":True}
+
 class ConversationPayload(BaseModel):
     language: Literal["en","hi","te","ta"] = "en"
     messages: list[dict] = Field(max_length=30)
