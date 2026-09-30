@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Sparkles, ShieldCheck, Plane, ShoppingBag, Fuel, Utensils, ChevronDown, RotateCcw, CreditCard, Info, Check, TrendingUp, MessageCircle, Send, Mic, Square, Volume2, X, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowRight, Sparkles, ShieldCheck, Plane, ShoppingBag, Fuel, Utensils, ChevronDown, CreditCard, Info, Check, TrendingUp, MessageCircle, Send, Mic, Square, Volume2, X, Settings as SettingsIcon } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8000' : '');
 const demo = {monthly_income:70000,credit_score:760,age:28,annual_fee_max:1500,reward_preference:'cashback',spending:{shopping:15000,dining:8000,fuel:4000,travel:5000,grocery:6000,utilities:3000}};
