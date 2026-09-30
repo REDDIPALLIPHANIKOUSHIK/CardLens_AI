@@ -237,6 +237,79 @@ def save_profile(profile: Profile, user: User = Depends(current_user)):
             row.profile = value
     return {"profile":value,"complete":True,"saved":True}
 
+class ConversationPayload(BaseModel):
+    language: Literal["en","hi","te"] = "en"
+    messages: list[dict] = Field(max_length=30)
+
+def _safe_messages(items: list[dict]) -> list[dict]:
+    safe = []
+    for item in items[-30:]:
+        role, content = item.get("role"), item.get("text", item.get("content"))
+        if role not in {"user","assistant"} or not isinstance(content, str):
+            raise HTTPException(status_code=422, detail="Conversation messages must have a user or assistant role and text.")
+        content = content.strip()
+        if not content or len(content) > 1500:
+            raise HTTPException(status_code=422, detail="Conversation messages must be between 1 and 1500 characters.")
+        safe.append({"role":role,"text":content})
+    return safe
+
+def _conversation_dict(session, db):
+    messages = db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).order_by(ConversationMessage.created_at.asc()).all()
+    return {"id":session.id,"language":session.language,"messages":[{"role":m.role,"text":m.content} for m in messages]}
+
+@app.get("/api/conversations/latest")
+def latest_conversation(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.user_id == user.id).order_by(ConversationSession.updated_at.desc()).first()
+        return {"conversation":_conversation_dict(session, db) if session else None}
+
+@app.post("/api/conversations", status_code=201)
+def create_conversation(payload: ConversationPayload, user: User = Depends(current_user)):
+    factory = _account_db()
+    messages = _safe_messages(payload.messages)
+    with factory.begin() as db:
+        session = ConversationSession(user_id=user.id, language=payload.language)
+        db.add(session)
+        db.flush()
+        for item in messages:
+            db.add(ConversationMessage(session_id=session.id, role=item["role"], content=item["text"]))
+        db.flush()
+        return {"conversation":_conversation_dict(session, db)}
+
+@app.put("/api/conversations/{conversation_id}")
+def update_conversation(conversation_id: str, payload: ConversationPayload, user: User = Depends(current_user)):
+    factory = _account_db()
+    messages = _safe_messages(payload.messages)
+    with factory.begin() as db:
+        session = db.query(ConversationSession).filter(ConversationSession.id == conversation_id, ConversationSession.user_id == user.id).first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        session.language = payload.language
+        db.query(ConversationMessage).filter(ConversationMessage.session_id == session.id).delete()
+        for item in messages:
+            db.add(ConversationMessage(session_id=session.id, role=item["role"], content=item["text"]))
+        db.flush()
+        return {"conversation":_conversation_dict(session, db)}
+
+@app.get("/api/history")
+def account_history(user: User = Depends(current_user)):
+    factory = _account_db()
+    with factory() as db:
+        recommendations = db.query(Recommendation).filter(Recommendation.user_id == user.id).order_by(Recommendation.created_at.desc()).limit(5).all()
+        simulations = db.query(SimulationHistory).filter(SimulationHistory.user_id == user.id).order_by(SimulationHistory.created_at.desc()).limit(5).all()
+        activity = [
+            {"type":"recommendation","created_at":item.created_at.isoformat() if item.created_at else None,
+             "summary":(item.results[0].get("name","Recommendation run") + " ranked first") if item.results else "Recommendation run saved"}
+            for item in recommendations
+        ] + [
+            {"type":"simulation","created_at":item.created_at.isoformat() if item.created_at else None,
+             "summary":item.results.get("explanation","What-If scenario saved")}
+            for item in simulations
+        ]
+        activity.sort(key=lambda item:item["created_at"] or "", reverse=True)
+        return {"items":activity[:8]}
+
 class ProfileExtractionRequest(BaseModel):
     text: str = Field(min_length=5, max_length=4000)
     language: Literal["en","hi","te"] = "en"
