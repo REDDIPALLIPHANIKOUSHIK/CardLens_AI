@@ -256,5 +256,28 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertTrue(required.issubset(set(Base.metadata.tables)))
         self.assertIn('embedding', CardDocument.__table__.columns)
 
+    def test_readiness_reports_missing_database_migrations(self):
+        with patch("backend.app.main.check_database", return_value=(False, "migrations_required")):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["error_code"], "DATABASE_MIGRATIONS_REQUIRED")
+        self.assertIn("alembic -c backend/alembic.ini upgrade head", response.json()["detail"]["message"])
+
+    def test_signup_reports_missing_database_migrations(self):
+        with patch("backend.app.auth.get_session_factory", return_value=object()), patch(
+            "backend.app.auth.check_database", return_value=(False, "migrations_required")
+        ):
+            response = self.client.post(
+                "/api/auth/signup",
+                json={"email":"migration-check@example.com","name":"Migration Check","password":"migration test 2026"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "DATABASE_MIGRATIONS_REQUIRED")
+        self.assertIn("alembic -c backend/alembic.ini upgrade head", response.json()["detail"]["message"])
+
+    def test_readiness_passes_after_migrations(self):
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200)
+
 if __name__ == '__main__':
     unittest.main()
