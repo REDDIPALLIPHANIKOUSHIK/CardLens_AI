@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from .database import get_session_factory
+from .database import check_database, get_session_factory
 from .models import AuthSession, ComparisonHistory, ConversationSession, Recommendation, SimulationHistory, User, UserFavorite, UserProfile
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -39,6 +39,17 @@ class DeleteAccountInput(BaseModel):
 def _factory():
     factory = get_session_factory()
     if factory is None:
+        raise HTTPException(status_code=503, detail={"code":"ACCOUNT_STORAGE_UNAVAILABLE","message":"Account storage is not configured or is temporarily unavailable."})
+    available, state = check_database()
+    if state == "migrations_required":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code":"DATABASE_MIGRATIONS_REQUIRED",
+                "message":"The production database schema is missing or out of date. With the production DATABASE_URL set, run: python -m alembic -c backend/alembic.ini upgrade head",
+            },
+        )
+    if not available:
         raise HTTPException(status_code=503, detail={"code":"ACCOUNT_STORAGE_UNAVAILABLE","message":"Account storage is temporarily unavailable."})
     return factory
 
