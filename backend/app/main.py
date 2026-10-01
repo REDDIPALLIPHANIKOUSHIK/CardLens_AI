@@ -743,7 +743,7 @@ async def _llm_tool_answer(question: str, profile: Profile, language: str, histo
     first = await provider.chat(messages, AI_TOOLS)
     calls = first.get("tool_calls") or []
     if not calls:
-        return {"answer":"I couldn't verify that answer with CardLens tools. I can explain or compare the deterministic demo results.","sources":[],"tools_called":[]}
+        return None
     messages.append(first)
     sources, used = [], []
     for call in calls[:4]:
@@ -771,9 +771,61 @@ async def chat(payload: dict):
     question = str(payload.get("message", "")).strip()
     if not question:
         raise HTTPException(status_code=422, detail="Message is required")
-    language = str(payload.get("language", "en"))
-    if language not in {"en","hi","te"}:
+    requested_language = str(payload.get("language", "en"))
+    if requested_language not in {"en","hi","te","ta"}:
         raise HTTPException(status_code=422, detail="Language must be en, hi, te, or ta.")
+    # Honour a language the user actually typed, while using their selector for
+    # English/transliterated input. Model-generated replies receive this same
+    # resolved language below.
+    language = requested_language
+    if any("\u0900" <= char <= "\u097f" for char in question):
+        language = "hi"
+    elif any("\u0c00" <= char <= "\u0c7f" for char in question):
+        language = "te"
+    elif any("\u0b80" <= char <= "\u0bff" for char in question):
+        language = "ta"
+    localized = {
+        "en": {"insufficient": INSUFFICIENT_EVIDENCE,
+               "no_cards": "There are no eligible synthetic demo cards for the supplied profile.",
+               "one_card": "I found only one eligible demo card to compare.",
+               "compare": "{first} ranks first with a CardLens Score of {score} and estimated net value ₹{first_value:,}. {second} has estimated net value ₹{second_value:,}. The estimated-value difference is ₹{difference:,}; these are synthetic demo estimates.",
+               "why": "{name} is currently ranked first with a model-generated suitability score of {score}/100. {reasons} This is a demo estimate, not an approval prediction.",
+               "whatif": "Use the What-If controls to change spending or fee preference; the deterministic simulator will recalculate eligibility, values, scores, and ranking without an AI call.",
+               "fallback": "I can explain your current ranking, compare your top eligible demo cards, and search the verified card knowledge base. Card terms are not answered unless a source document is indexed.",
+               "simulation_moved": "{name} moved to #1 because the changed profile shifted its score to {score}.",
+               "simulation_stays": "{name} remains #1 under the changed profile; its estimated value is ₹{value:,}.",
+               "simulation_none": "No eligible demo cards match the simulated profile."},
+        "hi": {"insufficient": "इस कार्ड की शर्तों के बारे में मुझे कोई सत्यापित जानकारी नहीं मिली।",
+               "no_cards": "दी गई प्रोफ़ाइल के लिए कोई पात्र डेमो कार्ड नहीं मिला।",
+               "one_card": "तुलना के लिए केवल एक पात्र डेमो कार्ड मिला।",
+               "compare": "{first} पहले स्थान पर है (CardLens स्कोर {score}); इसका अनुमानित शुद्ध वार्षिक मूल्य ₹{first_value:,} है। {second} का अनुमानित शुद्ध वार्षिक मूल्य ₹{second_value:,} है। दोनों के अनुमानित मूल्य में ₹{difference:,} का अंतर है। ये डेमो अनुमान हैं।",
+               "why": "{name} अभी {score}/100 के मॉडल-आधारित उपयुक्तता स्कोर के साथ पहले स्थान पर है। {reasons} यह डेमो अनुमान है, स्वीकृति की भविष्यवाणी नहीं।",
+               "whatif": "खर्च या शुल्क की पसंद बदलने के लिए What-If नियंत्रण इस्तेमाल करें। सिम्युलेटर बिना AI कॉल के पात्रता, मूल्य और रैंकिंग फिर से निकालेगा।",
+               "fallback": "मैं आपकी मौजूदा रैंकिंग समझा सकता हूँ, पात्र डेमो कार्डों की तुलना कर सकता हूँ और सत्यापित कार्ड जानकारी खोज सकता हूँ। स्रोत दस्तावेज़ के बिना कार्ड की शर्तों का उत्तर नहीं दिया जाता।",
+               "simulation_moved": "बदली हुई प्रोफ़ाइल के कारण {name} का स्कोर {score} हुआ और वह पहले स्थान पर आ गया।",
+               "simulation_stays": "बदली हुई प्रोफ़ाइल में {name} पहले स्थान पर बना हुआ है; इसका अनुमानित मूल्य ₹{value:,} है।",
+               "simulation_none": "इस सिम्युलेटेड प्रोफ़ाइल से कोई पात्र डेमो कार्ड नहीं मिला।"},
+        "te": {"insufficient": "ఈ కార్డ్ నిబంధనల గురించి ధృవీకరించిన సమాచారం నాకు లభించలేదు.",
+               "no_cards": "ఇచ్చిన ప్రొఫైల్‌కు అర్హమైన డెమో కార్డులు లేవు.",
+               "one_card": "పోల్చడానికి ఒక్క అర్హమైన డెమో కార్డ్ మాత్రమే దొరికింది.",
+               "compare": "{first} మొదటి స్థానంలో ఉంది (CardLens స్కోర్ {score}); అంచనా నికర వార్షిక విలువ ₹{first_value:,}. {second} అంచనా నికర వార్షిక విలువ ₹{second_value:,}. అంచనా విలువల మధ్య తేడా ₹{difference:,}. ఇవి డెమో అంచనాలు.",
+               "why": "{name} ప్రస్తుతం {score}/100 మోడల్ అనుకూలత స్కోర్‌తో మొదటి స్థానంలో ఉంది. {reasons} ఇది డెమో అంచనా మాత్రమే; ఆమోద అంచనా కాదు.",
+               "whatif": "ఖర్చు లేదా ఫీజు ఎంపికలను మార్చడానికి What-If నియంత్రణలను ఉపయోగించండి. AI కాల్ లేకుండా సిమ్యులేటర్ అర్హత, విలువలు, ర్యాంకింగ్‌ను మళ్లీ లెక్కిస్తుంది.",
+               "fallback": "ప్రస్తుత ర్యాంకింగ్‌ను వివరించగలను, అర్హమైన డెమో కార్డులను పోల్చగలను, ధృవీకరించిన కార్డ్ సమాచారాన్ని వెతకగలను. మూల పత్రం లేకుండా కార్డ్ నిబంధనలకు సమాధానం ఇవ్వను.",
+               "simulation_moved": "మారిన ప్రొఫైల్ వల్ల {name} స్కోరు {score}కు మారి మొదటి స్థానానికి వచ్చింది.",
+               "simulation_stays": "మారిన ప్రొఫైల్‌లో {name} మొదటి స్థానంలోనే ఉంది; అంచనా విలువ ₹{value:,}.",
+               "simulation_none": "ఈ సిమ్యులేటెడ్ ప్రొఫైల్‌కు అర్హమైన డెమో కార్డులు లేవు."},
+        "ta": {"insufficient": "இந்த அட்டையின் விதிமுறைகள் குறித்து சரிபார்க்கப்பட்ட தகவல் கிடைக்கவில்லை.",
+               "no_cards": "கொடுக்கப்பட்ட சுயவிவரத்திற்கு தகுதியான டெமோ அட்டைகள் இல்லை.",
+               "one_card": "ஒப்பிடுவதற்கு ஒரு தகுதியான டெமோ அட்டை மட்டுமே கிடைத்தது.",
+               "compare": "{first} CardLens மதிப்பெண் {score} உடன் முதலிடத்தில் உள்ளது; அதன் மதிப்பிடப்பட்ட நிகர ஆண்டு மதிப்பு ₹{first_value:,}. {second} மதிப்பிடப்பட்ட நிகர ஆண்டு மதிப்பு ₹{second_value:,}. மதிப்புகளின் வேறுபாடு ₹{difference:,}. இவை டெமோ மதிப்பீடுகள்.",
+               "why": "{name} தற்போது {score}/100 மாதிரி பொருத்த மதிப்பெண்ணுடன் முதலிடத்தில் உள்ளது. {reasons} இது டெமோ மதிப்பீடு; ஒப்புதல் கணிப்பு அல்ல.",
+               "whatif": "செலவு அல்லது கட்டண விருப்பத்தை மாற்ற What-If கட்டுப்பாடுகளைப் பயன்படுத்தவும். AI அழைப்பின்றி சிமுலேட்டர் தகுதி, மதிப்புகள், தரவரிசையை மீண்டும் கணக்கிடும்.",
+               "fallback": "தற்போதைய தரவரிசையை விளக்கவும் தகுதியான டெமோ அட்டைகளை ஒப்பிடவும் சரிபார்க்கப்பட்ட அட்டைத் தகவலைத் தேடவும் முடியும். ஆதார ஆவணம் இல்லாமல் அட்டை விதிமுறைகளுக்குப் பதிலளிக்க மாட்டேன்.",
+               "simulation_moved": "மாறிய சுயவிவரத்தால் {name} மதிப்பெண் {score} ஆகி முதலிடத்திற்கு வந்தது.",
+               "simulation_stays": "மாறிய சுயவிவரத்திலும் {name} முதலிடத்தில் உள்ளது; மதிப்பிடப்பட்ட மதிப்பு ₹{value:,}.",
+               "simulation_none": "இந்த உருவகப்படுத்தப்பட்ட சுயவிவரத்திற்கு தகுதியான டெமோ அட்டைகள் இல்லை."},
+    }[language]
     lower = question.lower()
     factual = any(term in lower for term in ("lounge", "forex", "foreign exchange", "annual fee", "joining fee", "cashback rule", "redemption", "exclusion"))
     try:
@@ -786,7 +838,7 @@ async def chat(payload: dict):
     if factual:
         knowledge = await search_card_knowledge(question, configured_embedding_provider(), payload.get("card_id"))
         if not knowledge["grounded"]:
-            return {"answer":INSUFFICIENT_EVIDENCE,"mode":"retrieval_fallback","grounded":False,"sources":[],"tools_called":["search_card_knowledge"]}
+            return {"answer":localized["insufficient"],"language":language,"mode":"retrieval_fallback","grounded":False,"sources":[],"tools_called":["search_card_knowledge"]}
         excerpts = knowledge["chunks"][:3]
         provider = configured_provider()
         if provider:
@@ -796,15 +848,16 @@ async def chat(payload: dict):
                 answer_message = await provider.chat([{"role":"system","content":system+"\n\n"+evidence},{"role":"user","content":question}])
                 answer = answer_message.get("content")
                 if isinstance(answer, str) and answer.strip():
-                    return {"answer":answer.strip(),"mode":"rag_llm","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
+                    return {"answer":answer.strip(),"language":language,"mode":"rag_llm","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
             except Exception as exc:
                 logger.warning(json.dumps({"event":"rag_llm_fallback","error_type":type(exc).__name__}))
-        answer = "Verified source excerpts:\n" + "\n".join(f"• {item['card_name']}: {item['text']}" for item in excerpts)
-        return {"answer":answer,"mode":"retrieval","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
+        intro = {"en":"Verified source excerpts:","hi":"सत्यापित स्रोत अंश:","te":"ధృవీకరించిన మూల వాక్యాలు:","ta":"சரிபார்க்கப்பட்ட ஆதாரப் பகுதிகள்:"}[language]
+        answer = intro + "\n" + "\n".join(f"• {item['card_name']}: {item['text']}" for item in excerpts)
+        return {"answer":answer,"language":language,"mode":"retrieval","grounded":True,"sources":knowledge["sources"],"tools_called":["search_card_knowledge"]}
     try:
         llm_result = await _llm_tool_answer(question, profile, language, payload.get('history'), payload.get('last_simulation'))
         if llm_result:
-            return {**llm_result,"mode":"llm_tools","grounded":True}
+            return {**llm_result,"language":language,"mode":"llm_tools","grounded":True}
     except Exception as exc:
         logger.warning(json.dumps({"event":"llm_tool_fallback","error_type":type(exc).__name__}))
     last_simulation = payload.get("last_simulation")
@@ -813,26 +866,34 @@ async def chat(payload: dict):
         if isinstance(changes, dict):
             try:
                 recalculated = simulate({"profile":profile.model_dump(),"changes":changes})
-                return {"answer":recalculated["explanation"],"mode":"deterministic_tools","grounded":True,"tools_called":["run_what_if_simulation"],"simulation":recalculated}
+                before_top = (recalculated.get("before", {}).get("recommendations") or [{}])[0]
+                after_top = (recalculated.get("after", {}).get("recommendations") or [{}])[0]
+                if not after_top:
+                    simulation_answer = localized["simulation_none"]
+                elif before_top.get("id") != after_top.get("id"):
+                    simulation_answer = localized["simulation_moved"].format(name=after_top.get("name", ""), score=after_top.get("score", 0))
+                else:
+                    simulation_answer = localized["simulation_stays"].format(name=after_top.get("name", ""), value=after_top.get("estimated_net_annual_value", 0))
+                return {"answer":simulation_answer,"language":language,"mode":"deterministic_tools","grounded":True,"tools_called":["run_what_if_simulation"],"simulation":recalculated}
             except (HTTPException, TypeError, ValueError):
                 pass
     ranked = _rank(profile)["recommendations"]
     if not ranked:
-        return {"answer":"There are no eligible synthetic demo cards for the supplied profile.","mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
+        return {"answer":localized["no_cards"],"language":language,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
     if any(term in lower for term in ("compare", "top two", "difference", "versus", " vs ")):
         compared = ranked[:2]
         if len(compared) < 2:
-            return {"answer":"I found only one eligible demo card to compare.","mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
+            return {"answer":localized["one_card"],"language":language,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"]}
         delta = compared[0]["estimated_net_annual_value"] - compared[1]["estimated_net_annual_value"]
-        answer = f"{compared[0]['name']} ranks first with a CardLens Score of {compared[0]['score']} and estimated net value ₹{compared[0]['estimated_net_annual_value']:,}. {compared[1]['name']} has estimated net value ₹{compared[1]['estimated_net_annual_value']:,}. The estimated-value difference is ₹{abs(delta):,}; these are synthetic demo estimates."
-        return {"answer":answer,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations","compare_cards"],"cards":compared}
+        answer = localized["compare"].format(first=compared[0]['name'],score=compared[0]['score'],first_value=compared[0]['estimated_net_annual_value'],second=compared[1]['name'],second_value=compared[1]['estimated_net_annual_value'],difference=abs(delta))
+        return {"answer":answer,"language":language,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations","compare_cards"],"cards":compared}
     if any(term in lower for term in ("why", "recommend", "best card", "shopping")):
         first = ranked[0]
-        answer = f"{first['name']} is currently ranked first with a model-generated suitability score of {first['score']}/100. " + "; ".join(first["why"]) + " This is a demo estimate, not an approval prediction."
-        return {"answer":answer,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"],"card":first}
+        answer = localized["why"].format(name=first['name'],score=first['score'],reasons="; ".join(first["why"]))
+        return {"answer":answer,"language":language,"mode":"deterministic_tools","grounded":True,"tools_called":["get_recommendations"],"card":first}
     if "what if" in lower or "simulation" in lower:
-        return {"answer":"Use the What-If controls to change spending or fee preference; the deterministic simulator will recalculate eligibility, values, scores, and ranking without an AI call.","mode":"deterministic_tools","grounded":True,"tools_called":["run_what_if_simulation"]}
-    return {"answer":"I can explain your current ranking, compare your top eligible demo cards, and search the verified card knowledge base. Card terms are not answered unless a source document is indexed.","mode":"deterministic_fallback","grounded":True,"tools_called":[]}
+        return {"answer":localized["whatif"],"language":language,"mode":"deterministic_tools","grounded":True,"tools_called":["run_what_if_simulation"]}
+    return {"answer":localized["fallback"],"language":language,"mode":"deterministic_fallback","grounded":True,"tools_called":[]}
 
 @app.get("/ready")
 @app.get("/api/ready", include_in_schema=False)
