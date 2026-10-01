@@ -903,3 +903,5 @@ def ready():
         raise HTTPException(status_code=503, detail={"success":False,"error_code":"DATABASE_UNAVAILABLE","message":"Persistent storage is temporarily unavailable."})
     return {"status":"ready","mode":"DEMO" if not database_url() else "POSTGRESQL","database":database}
 
+
+
