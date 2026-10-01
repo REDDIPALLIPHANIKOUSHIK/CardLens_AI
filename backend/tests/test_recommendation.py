@@ -216,6 +216,17 @@ class RecommendationApiTests(unittest.TestCase):
         self.assertFalse(response.json()['grounded'])
         self.assertEqual(response.json()['tools_called'], ['search_card_knowledge'])
 
+    def test_chat_language_selector_and_typed_language_are_honoured(self):
+        selected = self.client.post('/api/chat', json={"message":"Tell me what you can do.","profile":self.profile,"language":"hi"})
+        self.assertEqual(selected.status_code, 200)
+        self.assertEqual(selected.json()['language'], 'hi')
+        self.assertIn('रैंकिंग', selected.json()['answer'])
+
+        typed = self.client.post('/api/chat', json={"message":"தமிழில் பதில் சொல்லவும்","profile":self.profile,"language":"en"})
+        self.assertEqual(typed.status_code, 200)
+        self.assertEqual(typed.json()['language'], 'ta')
+        self.assertIn('தரவரிசை', typed.json()['answer'])
+
     def test_voice_unavailable_is_a_controlled_fallback(self):
         with patch('backend.app.main.configured_voice_provider', return_value=None):
             transcribe = self.client.post('/api/voice/transcribe', files={"audio":("clip.webm",b"audio","audio/webm")}, data={"language":"en"})
